@@ -6,6 +6,9 @@ module.exports = (err, req, res, next) => {
   // Log error in development
   if (process.env.NODE_ENV !== 'production') {
     console.error('Error:', err);
+  } else {
+    console.error(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} — ${err.message || err}`);
+    if (err.stack) console.error(err.stack);
   }
 
   // Operational errors: send message to client
