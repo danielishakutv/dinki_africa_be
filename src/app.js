@@ -83,6 +83,7 @@ app.use('/v1/users', require('./modules/users/users.routes'));
 app.use('/v1/customers', require('./modules/customers/customers.routes'));
 app.use('/v1/jobs', require('./modules/jobs/jobs.routes'));
 app.use('/v1/storefronts', require('./modules/storefronts/storefronts.routes'));
+app.use('/v1/orders', require('./modules/orders/orders.routes'));
 
 // 404 handler
 app.all('*', (req, res, next) => {
