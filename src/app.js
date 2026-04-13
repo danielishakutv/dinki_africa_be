@@ -77,8 +77,8 @@ app.get('/v1/health', async (req, res) => {
   });
 });
 
-// API routes will be mounted here
-// app.use('/v1/auth', require('./modules/auth/auth.routes'));
+// API routes
+app.use('/v1/auth', require('./modules/auth/auth.routes'));
 
 // 404 handler
 app.all('*', (req, res, next) => {
