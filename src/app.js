@@ -79,6 +79,9 @@ app.get('/v1/health', async (req, res) => {
 
 // API routes
 app.use('/v1/auth', require('./modules/auth/auth.routes'));
+app.use('/v1/users', require('./modules/users/users.routes'));
+app.use('/v1/customers', require('./modules/customers/customers.routes'));
+app.use('/v1/jobs', require('./modules/jobs/jobs.routes'));
 
 // 404 handler
 app.all('*', (req, res, next) => {
