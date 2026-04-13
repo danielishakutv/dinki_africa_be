@@ -86,6 +86,8 @@ app.use('/v1/storefronts', require('./modules/storefronts/storefronts.routes'));
 app.use('/v1/orders', require('./modules/orders/orders.routes'));
 app.use('/v1/reviews', require('./modules/reviews/reviews.routes'));
 app.use('/v1/favourites', require('./modules/favourites/favourites.routes'));
+app.use('/v1/conversations', require('./modules/messaging/messaging.routes'));
+app.use('/v1/notifications', require('./modules/notifications/notifications.routes'));
 
 // 404 handler
 app.all('*', (req, res, next) => {
