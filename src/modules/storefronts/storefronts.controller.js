@@ -31,7 +31,7 @@ exports.getReviews = async (req, res, next) => {
 
 exports.updateStorefront = async (req, res, next) => {
   try {
-    const updated = await service.updateStorefront(req.user.userId, req.body);
+    const updated = await service.updateStorefront(req.user.id, req.body);
     res.json({ success: true, data: updated });
   } catch (err) {
     next(err);
@@ -40,7 +40,7 @@ exports.updateStorefront = async (req, res, next) => {
 
 exports.addPortfolioItem = async (req, res, next) => {
   try {
-    const item = await service.addPortfolioItem(req.user.userId, req.body);
+    const item = await service.addPortfolioItem(req.user.id, req.body);
     res.status(201).json({ success: true, data: item });
   } catch (err) {
     next(err);
@@ -49,7 +49,7 @@ exports.addPortfolioItem = async (req, res, next) => {
 
 exports.removePortfolioItem = async (req, res, next) => {
   try {
-    await service.removePortfolioItem(req.user.userId, req.params.id);
+    await service.removePortfolioItem(req.user.id, req.params.id);
     res.json({ success: true, data: { message: 'Portfolio item removed' } });
   } catch (err) {
     next(err);
