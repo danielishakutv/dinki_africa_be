@@ -1,7 +1,7 @@
 const { body, param, query } = require('express-validator');
 
 const slugParam = [
-  param('slug').trim().isSlug().withMessage('Invalid storefront slug'),
+  param('slug').trim().matches(/^[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*$/).withMessage('Invalid storefront slug'),
 ];
 
 const portfolioParam = [
@@ -16,7 +16,7 @@ const listReviewsSchema = [
 
 const updateStorefrontSchema = [
   body('bio').optional().isString().isLength({ max: 2000 }).withMessage('Bio must be under 2000 characters'),
-  body('slug').optional().trim().isSlug().isLength({ min: 3, max: 50 }).withMessage('Slug must be 3-50 characters, URL-friendly'),
+  body('slug').optional().trim().matches(/^[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*$/).isLength({ min: 3, max: 50 }).withMessage('Slug must be 3-50 characters, URL-friendly'),
   body('image').optional().isString().isLength({ max: 500 }),
   body('response_time').optional().isString().isLength({ max: 30 }),
   body('start_price').optional().isInt({ min: 0 }).toInt(),
