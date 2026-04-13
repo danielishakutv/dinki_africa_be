@@ -1,9 +1,9 @@
 exports.up = async function (knex) {
   await knex.raw(`
     CREATE TABLE analytics_events (
-      id              BIGSERIAL PRIMARY KEY,
+      id              BIGSERIAL NOT NULL,
       event_type      VARCHAR(50) NOT NULL,
-      user_id         UUID REFERENCES users(id),
+      user_id         UUID,
       session_id      VARCHAR(36),
       page_path       VARCHAR(255),
       element_id      VARCHAR(100),
@@ -18,7 +18,8 @@ exports.up = async function (knex) {
       city            VARCHAR(100),
       ip_hash         VARCHAR(64),
       response_time   SMALLINT,
-      created_at      TIMESTAMPTZ DEFAULT NOW()
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (id, created_at)
     ) PARTITION BY RANGE (created_at)
   `);
 
