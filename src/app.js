@@ -43,6 +43,13 @@ if (config.env !== 'production') {
   app.use(morgan('combined'));
 }
 
+// Serve uploaded files
+const path = require('path');
+app.use('/uploads', express.static(path.resolve(config.upload.dir), {
+  maxAge: '7d',
+  immutable: true,
+}));
+
 // Health check
 app.get('/v1/health', async (req, res) => {
   const db = require('./config/database');
@@ -88,6 +95,7 @@ app.use('/v1/reviews', require('./modules/reviews/reviews.routes'));
 app.use('/v1/favourites', require('./modules/favourites/favourites.routes'));
 app.use('/v1/conversations', require('./modules/messaging/messaging.routes'));
 app.use('/v1/notifications', require('./modules/notifications/notifications.routes'));
+app.use('/v1/uploads', require('./modules/uploads/uploads.routes'));
 
 // 404 handler
 app.all('*', (req, res, next) => {

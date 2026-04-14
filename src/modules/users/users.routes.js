@@ -3,13 +3,13 @@ const ctrl = require('./users.controller');
 const auth = require('../../middleware/auth');
 const { validate } = require('../../middleware/validate');
 const { updateProfileSchema, onboardingSchema, preferencesSchema } = require('./users.validation');
-const { upload } = require('../../middleware/upload');
+const { upload, processUpload } = require('../../middleware/upload');
 
 router.use(auth);
 
 router.get('/me', ctrl.getProfile);
 router.patch('/me', validate(updateProfileSchema), ctrl.updateProfile);
-router.patch('/me/avatar', upload.single('avatar'), ctrl.updateAvatar);
+router.patch('/me/avatar', upload.single('avatar'), processUpload, ctrl.updateAvatar);
 router.get('/me/stats', ctrl.getStats);
 router.patch('/me/preferences', validate(preferencesSchema), ctrl.updatePreferences);
 router.post('/me/onboarding', validate(onboardingSchema), ctrl.completeOnboarding);
