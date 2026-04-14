@@ -14,7 +14,8 @@ exports.getJob = catchAsync(async (req, res) => {
 });
 
 exports.createJob = catchAsync(async (req, res) => {
-  const job = await jobsService.createJob(req.user.id, req.body);
+  const io = req.app.get('io');
+  const job = await jobsService.createJob(req.user.id, req.body, io);
   return success(res, job, 201);
 });
 

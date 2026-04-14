@@ -1,7 +1,8 @@
 const { body, query } = require('express-validator');
 
 const createJobSchema = [
-  body('customer_id').isUUID().withMessage('Valid customer ID is required'),
+  body('customer_id').optional().isUUID().withMessage('Valid customer ID is required'),
+  body('user_id').optional().isUUID().withMessage('Valid user ID is required'),
   body('title').trim().isLength({ min: 1, max: 200 }).withMessage('Title is required (max 200 chars)'),
   body('description').optional().trim().isLength({ max: 2000 }),
   body('style_image_url').optional().trim().isURL().withMessage('Must be a valid URL'),

@@ -2,11 +2,12 @@ const router = require('express').Router();
 const ctrl = require('./users.controller');
 const auth = require('../../middleware/auth');
 const { validate } = require('../../middleware/validate');
-const { updateProfileSchema, onboardingSchema, preferencesSchema } = require('./users.validation');
+const { updateProfileSchema, onboardingSchema, preferencesSchema, searchUsersSchema } = require('./users.validation');
 const { upload, processUpload } = require('../../middleware/upload');
 
 router.use(auth);
 
+router.get('/search', validate(searchUsersSchema), ctrl.searchUsers);
 router.get('/me', ctrl.getProfile);
 router.patch('/me', validate(updateProfileSchema), ctrl.updateProfile);
 router.patch('/me/avatar', upload.single('avatar'), processUpload, ctrl.updateAvatar);

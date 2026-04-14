@@ -1,5 +1,6 @@
 const db = require('../../config/database');
 const AppError = require('../../utils/AppError');
+const { createNotification } = require('../notifications/notifications.service');
 
 const STATUS_ORDER = ['cutting', 'stitching', 'ready', 'delivered'];
 
@@ -62,18 +63,59 @@ async function getJob(tailorId, jobId) {
   return job;
 }
 
-async function createJob(tailorId, data) {
-  // Verify customer belongs to this tailor
-  const customer = await db('customers')
-    .where({ id: data.customer_id, tailor_id: tailorId })
-    .first();
+async function createJob(tailorId, data, io) {
+  if (!data.customer_id && !data.user_id) {
+    throw new AppError('Either customer_id or user_id is required', 400, 'VALIDATION_ERROR');
+  }
 
-  if (!customer) throw new AppError('Customer not found', 404, 'CUSTOMER_NOT_FOUND');
+  let customerId = data.customer_id;
+  let linkedUserId = null;
+
+  if (data.user_id) {
+    // Linking to a platform user — find or create a local customer record
+    const platformUser = await db('users')
+      .where({ id: data.user_id, is_active: true })
+      .select('id', 'name', 'email', 'phone', 'initials', 'avatar_color')
+      .first();
+
+    if (!platformUser) throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+
+    // Check if tailor already has a customer record for this user
+    let customer = await db('customers')
+      .where({ tailor_id: tailorId, user_id: data.user_id })
+      .first();
+
+    if (!customer) {
+      // Auto-create customer record linked to platform user
+      [customer] = await db('customers')
+        .insert({
+          tailor_id: tailorId,
+          user_id: platformUser.id,
+          name: platformUser.name,
+          email: platformUser.email,
+          phone: platformUser.phone || null,
+          initials: platformUser.initials,
+          avatar_color: platformUser.avatar_color,
+        })
+        .returning('*');
+    }
+
+    customerId = customer.id;
+    linkedUserId = platformUser.id;
+  } else {
+    // Traditional flow — verify customer belongs to this tailor
+    const customer = await db('customers')
+      .where({ id: data.customer_id, tailor_id: tailorId })
+      .first();
+
+    if (!customer) throw new AppError('Customer not found', 404, 'CUSTOMER_NOT_FOUND');
+    linkedUserId = customer.user_id || null;
+  }
 
   const [job] = await db('jobs')
     .insert({
       tailor_id: tailorId,
-      customer_id: data.customer_id,
+      customer_id: customerId,
       title: data.title,
       description: data.description || null,
       style_image_url: data.style_image_url || null,
@@ -82,6 +124,18 @@ async function createJob(tailorId, data) {
       status: 'cutting',
     })
     .returning('*');
+
+  // Notify the platform user if linked
+  if (linkedUserId) {
+    const tailor = await db('users').where({ id: tailorId }).select('name').first();
+    createNotification({
+      userId: linkedUserId,
+      type: 'job',
+      title: 'New Job Added',
+      message: `${tailor?.name || 'A tailor'} has added a new job "${data.title}" for you.`,
+      metadata: { job_id: job.id, tailor_id: tailorId },
+    }, io).catch(() => {});
+  }
 
   return job;
 }

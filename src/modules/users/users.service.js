@@ -127,4 +127,22 @@ async function softDelete(userId) {
   await db('refresh_tokens').where({ user_id: userId }).del();
 }
 
-module.exports = { getProfile, updateProfile, updateAvatar, updatePreferences, completeOnboarding, getStats, softDelete };
+async function searchUsers(query, { role, excludeUserId, limit = 10 }) {
+  const q = db('users')
+    .where('is_active', true)
+    .whereNull('deleted_at')
+    .where('onboarding_completed', true)
+    .whereILike('name', `%${query}%`);
+
+  if (role) q.where('role', role);
+  if (excludeUserId) q.whereNot('id', excludeUserId);
+
+  const users = await q
+    .select('id', 'name', 'email', 'initials', 'avatar_color', 'avatar_url', 'role')
+    .orderBy('name', 'asc')
+    .limit(limit);
+
+  return users;
+}
+
+module.exports = { getProfile, updateProfile, updateAvatar, updatePreferences, completeOnboarding, getStats, softDelete, searchUsers };

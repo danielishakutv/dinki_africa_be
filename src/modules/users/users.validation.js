@@ -1,4 +1,4 @@
-const { body } = require('express-validator');
+const { body, query } = require('express-validator');
 
 const updateProfileSchema = [
   body('name').optional().trim().isLength({ min: 2, max: 100 }).withMessage('Name must be 2-100 characters'),
@@ -22,4 +22,9 @@ const preferencesSchema = [
   body('language').optional().isIn(['en', 'fr', 'ha', 'yo', 'ig']),
 ];
 
-module.exports = { updateProfileSchema, onboardingSchema, preferencesSchema };
+const searchUsersSchema = [
+  query('q').trim().isLength({ min: 2, max: 100 }).withMessage('Search query must be 2-100 characters'),
+  query('role').optional().isIn(['customer', 'tailor']).withMessage('Role must be customer or tailor'),
+];
+
+module.exports = { updateProfileSchema, onboardingSchema, preferencesSchema, searchUsersSchema };

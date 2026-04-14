@@ -41,3 +41,13 @@ exports.deleteAccount = catchAsync(async (req, res) => {
   res.clearCookie('refreshToken');
   return success(res, { message: 'Account deleted' });
 });
+
+exports.searchUsers = catchAsync(async (req, res) => {
+  const { q, role } = req.query;
+  const users = await usersService.searchUsers(q, {
+    role: role || 'customer',
+    excludeUserId: req.user.id,
+    limit: 10,
+  });
+  return success(res, users);
+});
