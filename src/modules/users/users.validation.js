@@ -1,4 +1,7 @@
-const { body, query } = require('express-validator');
+const { body, query, param } = require('express-validator');
+
+const usernameRegex = /^[a-zA-Z][a-zA-Z0-9._]{2,29}$/;
+const usernameMsg = 'Username must be 3-30 chars, start with a letter, and contain only letters, numbers, dots, or underscores';
 
 const updateProfileSchema = [
   body('name').optional().trim().isLength({ min: 2, max: 100 }).withMessage('Name must be 2-100 characters'),
@@ -27,4 +30,17 @@ const searchUsersSchema = [
   query('role').optional().isIn(['customer', 'tailor']).withMessage('Role must be customer or tailor'),
 ];
 
-module.exports = { updateProfileSchema, onboardingSchema, preferencesSchema, searchUsersSchema };
+const checkUsernameSchema = [
+  query('username').trim().matches(usernameRegex).withMessage(usernameMsg),
+];
+
+const usernameSchema = [
+  body('username').trim().matches(usernameRegex).withMessage(usernameMsg),
+];
+
+const adminUsernameSchema = [
+  param('id').isUUID().withMessage('Valid user ID is required'),
+  body('username').trim().matches(usernameRegex).withMessage(usernameMsg),
+];
+
+module.exports = { updateProfileSchema, onboardingSchema, preferencesSchema, searchUsersSchema, usernameSchema, checkUsernameSchema, adminUsernameSchema };

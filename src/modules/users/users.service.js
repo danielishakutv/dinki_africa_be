@@ -4,7 +4,7 @@ const AppError = require('../../utils/AppError');
 async function getProfile(userId) {
   const user = await db('users')
     .where({ id: userId })
-    .select('id', 'email', 'name', 'phone', 'avatar_url', 'initials', 'avatar_color',
+    .select('id', 'email', 'name', 'username', 'phone', 'avatar_url', 'initials', 'avatar_color',
       'bio', 'location_city', 'location_state', 'location_country', 'specialties',
       'role', 'onboarding_completed', 'preferences', 'referral_code', 'created_at')
     .first();
@@ -145,4 +145,52 @@ async function searchUsers(query, { role, excludeUserId, limit = 10 }) {
   return users;
 }
 
-module.exports = { getProfile, updateProfile, updateAvatar, updatePreferences, completeOnboarding, getStats, softDelete, searchUsers };
+async function checkUsername(username) {
+  const existing = await db('users')
+    .whereRaw('LOWER(username) = ?', [username.toLowerCase()])
+    .first('id');
+  return { available: !existing };
+}
+
+async function setUsername(userId, username) {
+  const user = await db('users').where({ id: userId }).first('username');
+  if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');
+
+  if (user.username) {
+    throw new AppError('Username already set. Contact support to change it.', 403, 'USERNAME_LOCKED');
+  }
+
+  const taken = await db('users')
+    .whereRaw('LOWER(username) = ?', [username.toLowerCase()])
+    .first('id');
+  if (taken) {
+    throw new AppError('Username is already taken', 409, 'USERNAME_TAKEN');
+  }
+
+  const [updated] = await db('users').where({ id: userId })
+    .update({ username, updated_at: new Date() })
+    .returning(['id', 'username']);
+
+  return updated;
+}
+
+async function adminChangeUsername(targetUserId, newUsername) {
+  const target = await db('users').where({ id: targetUserId }).first('id');
+  if (!target) throw new AppError('User not found', 404, 'NOT_FOUND');
+
+  const taken = await db('users')
+    .whereRaw('LOWER(username) = ?', [newUsername.toLowerCase()])
+    .whereNot('id', targetUserId)
+    .first('id');
+  if (taken) {
+    throw new AppError('Username is already taken', 409, 'USERNAME_TAKEN');
+  }
+
+  const [updated] = await db('users').where({ id: targetUserId })
+    .update({ username: newUsername, updated_at: new Date() })
+    .returning(['id', 'username']);
+
+  return updated;
+}
+
+module.exports = { getProfile, updateProfile, updateAvatar, updatePreferences, completeOnboarding, getStats, softDelete, searchUsers, checkUsername, setUsername, adminChangeUsername };

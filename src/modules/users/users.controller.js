@@ -51,3 +51,18 @@ exports.searchUsers = catchAsync(async (req, res) => {
   });
   return success(res, users);
 });
+
+exports.checkUsername = catchAsync(async (req, res) => {
+  const result = await usersService.checkUsername(req.query.username);
+  return success(res, result);
+});
+
+exports.setUsername = catchAsync(async (req, res) => {
+  const user = await usersService.setUsername(req.user.id, req.body.username);
+  return success(res, user);
+});
+
+exports.adminChangeUsername = catchAsync(async (req, res) => {
+  const user = await usersService.adminChangeUsername(req.params.id, req.body.username);
+  return success(res, user);
+});
