@@ -6,6 +6,7 @@ const redis = require('../../config/redis');
 const config = require('../../config');
 const AppError = require('../../utils/AppError');
 const { nanoid } = require('nanoid');
+const emailService = require('../../services/emailService');
 
 const SALT_ROUNDS = 12;
 const OTP_EXPIRY = 5 * 60; // 5 minutes in seconds
@@ -97,8 +98,9 @@ async function signup({ email, password, name, role }) {
   const otp = generateOTP();
   await redis.setex(`otp:${email}`, OTP_EXPIRY, otp);
 
-  // TODO: Send verification email via nodemailer
-  // For now, log OTP in development
+  // Send OTP email (non-blocking so auth flow isn't affected)
+  emailService.sendOTP(email, otp, name).catch(err => console.error('[EMAIL] OTP send failed:', err.message));
+
   if (config.env !== 'production') {
     console.log(`[DEV] OTP for ${email}: ${otp}`);
   }
@@ -126,6 +128,9 @@ async function verifyEmail({ email, otp }) {
 
   await db('users').where({ id: user.id }).update(updates);
   await redis.del(`otp:${email}`);
+
+  // Send welcome email (non-blocking)
+  emailService.sendWelcome(email, user.name, user.role).catch(err => console.error('[EMAIL] Welcome send failed:', err.message));
 
   const accessToken = generateAccessToken(user);
   const refreshToken = await generateRefreshToken(user.id);
@@ -170,6 +175,7 @@ async function login({ email, password }) {
     // Re-send OTP
     const otp = generateOTP();
     await redis.setex(`otp:${email}`, OTP_EXPIRY, otp);
+    emailService.sendOTP(email, otp).catch(err => console.error('[EMAIL] OTP re-send failed:', err.message));
     if (config.env !== 'production') {
       console.log(`[DEV] OTP for ${email}: ${otp}`);
     }
@@ -250,7 +256,9 @@ async function forgotPassword(email) {
   const resetToken = crypto.randomBytes(32).toString('hex');
   await redis.setex(`reset:${resetToken}`, RESET_TOKEN_EXPIRY, user.id);
 
-  // TODO: Send email with reset link
+  // Send password reset email (non-blocking)
+  emailService.sendPasswordReset(email, resetToken, user.name).catch(err => console.error('[EMAIL] Reset send failed:', err.message));
+
   if (config.env !== 'production') {
     console.log(`[DEV] Reset token for ${email}: ${resetToken}`);
   }
@@ -332,6 +340,9 @@ async function activate({ user_id, email, password, name }) {
   // Generate and store OTP
   const otp = generateOTP();
   await redis.setex(`otp:${email}`, OTP_EXPIRY, otp);
+
+  // Send activation OTP email (non-blocking)
+  emailService.sendOTP(email, otp, name || user.name).catch(err => console.error('[EMAIL] Activation OTP send failed:', err.message));
 
   if (config.env !== 'production') {
     console.log(`[DEV] Activation OTP for ${email}: ${otp}`);
