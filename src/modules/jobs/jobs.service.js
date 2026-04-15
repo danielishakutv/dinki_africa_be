@@ -4,7 +4,7 @@ const { createNotification } = require('../notifications/notifications.service')
 
 const STATUS_ORDER = ['cutting', 'stitching', 'ready', 'delivered'];
 
-async function listJobs(tailorId, { status, overdue, search, page = 1, limit = 20 }) {
+async function listJobs(tailorId, { status, overdue, search, customer_id, page = 1, limit = 20 }) {
   const query = db('jobs')
     .where({ 'jobs.tailor_id': tailorId })
     .leftJoin('customers', 'jobs.customer_id', 'customers.id')
@@ -15,6 +15,7 @@ async function listJobs(tailorId, { status, overdue, search, page = 1, limit = 2
       'customers.avatar_color as customer_avatar_color'
     );
 
+  if (customer_id) query.where('jobs.customer_id', customer_id);
   if (status) query.where('jobs.status', status);
   if (overdue) {
     query.where('jobs.due_date', '<', db.fn.now())

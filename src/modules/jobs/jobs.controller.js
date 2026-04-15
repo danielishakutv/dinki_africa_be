@@ -3,8 +3,8 @@ const catchAsync = require('../../utils/catchAsync');
 const { success } = require('../../utils/apiResponse');
 
 exports.listJobs = catchAsync(async (req, res) => {
-  const { status, overdue, search, page, limit } = req.query;
-  const result = await jobsService.listJobs(req.user.id, { status, overdue, search, page, limit });
+  const { status, overdue, search, page, limit, customer_id } = req.query;
+  const result = await jobsService.listJobs(req.user.id, { status, overdue, search, page, limit, customer_id });
   return success(res, result.jobs, 200, result.pagination);
 });
 
