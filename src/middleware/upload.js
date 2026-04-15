@@ -40,7 +40,8 @@ async function processImage(buffer, filename) {
     .webp({ quality: 70 })
     .toFile(path.join(uploadDir, thumbName));
 
-  return { url: `/uploads/${name}`, thumbnail: `/uploads/${thumbName}` };
+  const base = config.upload.baseUrl;
+  return { url: `${base}/uploads/${name}`, thumbnail: `${base}/uploads/${thumbName}` };
 }
 
 // Middleware that processes uploaded file through Sharp

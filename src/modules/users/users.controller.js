@@ -16,7 +16,8 @@ exports.updateAvatar = catchAsync(async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'No image uploaded' } });
   }
-  const avatarUrl = `/uploads/${req.file.filename}`;
+  const config = require('../../config');
+  const avatarUrl = `${config.upload.baseUrl}/uploads/${req.file.filename}`;
   const user = await usersService.updateAvatar(req.user.id, avatarUrl);
   return success(res, user);
 });
