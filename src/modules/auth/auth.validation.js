@@ -60,6 +60,23 @@ const changePasswordSchema = [
     .matches(/[0-9]/).withMessage('Password must contain a number'),
 ];
 
+const activateSchema = [
+  body('user_id')
+    .isUUID().withMessage('Valid user ID is required'),
+  body('email')
+    .trim()
+    .isEmail().withMessage('Valid email is required')
+    .normalizeEmail(),
+  body('password')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+    .matches(/[A-Z]/).withMessage('Password must contain an uppercase letter')
+    .matches(/[0-9]/).withMessage('Password must contain a number'),
+  body('name')
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 100 }).withMessage('Name must be 2-100 characters'),
+];
+
 module.exports = {
   signupSchema,
   loginSchema,
@@ -67,4 +84,5 @@ module.exports = {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  activateSchema,
 };

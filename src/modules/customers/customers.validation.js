@@ -7,6 +7,14 @@ const createCustomerSchema = [
   body('location').optional().trim().isLength({ max: 200 }),
 ];
 
+const linkCustomerSchema = [
+  body('user_id').isUUID().withMessage('Valid user ID is required'),
+  body('name').optional().trim().isLength({ min: 1, max: 100 }),
+  body('phone').optional().trim().isLength({ max: 20 }),
+  body('email').optional().trim().isEmail().withMessage('Invalid email'),
+  body('location').optional().trim().isLength({ max: 200 }),
+];
+
 const updateCustomerSchema = [
   body('name').optional().trim().isLength({ min: 1, max: 100 }).withMessage('Name max 100 chars'),
   body('phone').optional().trim().isLength({ max: 20 }),
@@ -42,6 +50,7 @@ const listCustomersSchema = [
 
 module.exports = {
   createCustomerSchema,
+  linkCustomerSchema,
   updateCustomerSchema,
   updateMeasurementsSchema,
   addCustomFieldSchema,

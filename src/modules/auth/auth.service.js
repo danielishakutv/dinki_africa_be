@@ -51,9 +51,22 @@ function getInitials(name) {
 async function signup({ email, password, name, role }) {
   // Check if email exists
   const existing = await db('users').where({ email }).first();
+
   if (existing) {
+    // If it's an inactive placeholder account → tell frontend to activate instead
+    if (existing.account_status === 'inactive') {
+      return {
+        inactive_account: true,
+        user_id: existing.id,
+        name: existing.name,
+        message: 'An account was set up for you by a tailor. Verify to activate it.',
+      };
+    }
     throw new AppError('Email already registered', 409, 'EMAIL_EXISTS');
   }
+
+  // Also check by phone if the user provided one (future: add phone to signup)
+  // For now, only email matching in signup
 
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
   const referralCode = nanoid(8);
@@ -67,6 +80,7 @@ async function signup({ email, password, name, role }) {
       name,
       initials,
       referral_code: referralCode,
+      account_status: 'active',
     })
     .returning(['id', 'email', 'name', 'role']);
 
@@ -104,7 +118,13 @@ async function verifyEmail({ email, otp }) {
     throw new AppError('User not found', 404, 'NOT_FOUND');
   }
 
-  await db('users').where({ id: user.id }).update({ email_verified: true });
+  // Activate account if it was inactive (tailor-created placeholder)
+  const updates = { email_verified: true };
+  if (user.account_status === 'inactive') {
+    updates.account_status = 'active';
+  }
+
+  await db('users').where({ id: user.id }).update(updates);
   await redis.del(`otp:${email}`);
 
   const accessToken = generateAccessToken(user);
@@ -270,6 +290,65 @@ async function changePassword(userId, { currentPassword, newPassword }) {
   return { message: 'Password changed. Please log in again.' };
 }
 
+/**
+ * Activate an inactive account (created by a tailor on behalf of a customer).
+ * Sets the real email, password, and sends an OTP for verification.
+ */
+async function activate({ user_id, email, password, name }) {
+  const user = await db('users').where({ id: user_id }).first();
+
+  if (!user) {
+    throw new AppError('Account not found', 404, 'NOT_FOUND');
+  }
+
+  if (user.account_status !== 'inactive') {
+    throw new AppError('Account is already active', 400, 'ALREADY_ACTIVE');
+  }
+
+  // Make sure the new email isn't taken by a different user
+  const emailTaken = await db('users')
+    .where({ email })
+    .whereNot({ id: user_id })
+    .first();
+
+  if (emailTaken) {
+    throw new AppError('Email already registered to another account', 409, 'EMAIL_EXISTS');
+  }
+
+  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+  const updates = {
+    email,
+    password_hash: passwordHash,
+    updated_at: new Date(),
+  };
+
+  if (name) {
+    updates.name = name;
+    updates.initials = getInitials(name);
+  }
+
+  await db('users').where({ id: user_id }).update(updates);
+
+  // Generate and store OTP
+  const otp = generateOTP();
+  await redis.setex(`otp:${email}`, OTP_EXPIRY, otp);
+
+  if (config.env !== 'production') {
+    console.log(`[DEV] Activation OTP for ${email}: ${otp}`);
+  }
+
+  return {
+    message: 'Verification code sent. Please check your email.',
+    userId: user_id,
+  };
+}
+
+/**
+ * Complete activation after OTP verification.
+ * This is called by the existing verifyEmail flow — we just need verifyEmail
+ * to also set account_status = 'active' when verifying an inactive account.
+ */
+
 module.exports = {
   signup,
   verifyEmail,
@@ -279,4 +358,5 @@ module.exports = {
   forgotPassword,
   resetPassword,
   changePassword,
+  activate,
 };

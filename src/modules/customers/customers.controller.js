@@ -14,7 +14,23 @@ exports.getCustomer = catchAsync(async (req, res) => {
 });
 
 exports.createCustomer = catchAsync(async (req, res) => {
-  const customer = await customersService.createCustomer(req.user.id, req.body);
+  const result = await customersService.createCustomer(req.user.id, req.body);
+
+  // If identity match found, return 200 with confirmation prompt
+  if (result.requires_confirmation) {
+    return success(res, result, 200);
+  }
+
+  return success(res, result, 201);
+});
+
+exports.linkCustomer = catchAsync(async (req, res) => {
+  const customer = await customersService.linkCustomer(req.user.id, req.body);
+  return success(res, customer, 201);
+});
+
+exports.createCustomerForced = catchAsync(async (req, res) => {
+  const customer = await customersService.createCustomerForced(req.user.id, req.body);
   return success(res, customer, 201);
 });
 

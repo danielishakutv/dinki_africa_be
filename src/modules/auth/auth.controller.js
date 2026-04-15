@@ -55,6 +55,11 @@ exports.changePassword = catchAsync(async (req, res) => {
   return success(res, result);
 });
 
+exports.activate = catchAsync(async (req, res) => {
+  const result = await authService.activate(req.body);
+  return success(res, result);
+});
+
 function setRefreshCookie(res, token) {
   res.cookie('refreshToken', token, {
     httpOnly: true,
