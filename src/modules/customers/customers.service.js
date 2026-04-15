@@ -120,45 +120,80 @@ async function createCustomer(tailorId, data) {
   }
 
   // --- no match → create inactive user + customer --------------------------
-  return db.transaction(async (trx) => {
-    let userId = null;
+  try {
+    return await db.transaction(async (trx) => {
+      let userId = null;
 
-    if (phone || email) {
-      const [newUser] = await trx('users')
+      if (phone || email) {
+        const [newUser] = await trx('users')
+          .insert({
+            name: data.name,
+            email: email || `placeholder-${nanoid(12)}@inactive.dinki.africa`,
+            password_hash: 'INACTIVE_ACCOUNT_NO_PASSWORD',
+            role: 'customer',
+            phone,
+            initials,
+            avatar_color: avatarColor,
+            account_status: 'inactive',
+            is_active: true,
+            referral_code: nanoid(8),
+          })
+          .returning(['id']);
+
+        userId = newUser.id;
+      }
+
+      const [customer] = await trx('customers')
         .insert({
+          tailor_id: tailorId,
+          user_id: userId,
           name: data.name,
-          email: email || `placeholder-${nanoid(12)}@inactive.dinki.africa`,
-          password_hash: 'INACTIVE_ACCOUNT_NO_PASSWORD',
-          role: 'customer',
           phone,
+          email,
+          location: data.location || null,
           initials,
           avatar_color: avatarColor,
-          account_status: 'inactive',
-          is_active: true,
-          referral_code: nanoid(8),
+          measurements: JSON.stringify({ _version: 1, standard: {}, custom: [] }),
+          custom_fields: JSON.stringify([]),
         })
-        .returning(['id']);
+        .returning('*');
 
-      userId = newUser.id;
+      return customer;
+    });
+  } catch (err) {
+    // Unique constraint violation — the user exists but findMatchingUser missed it
+    // (race condition, phone format mismatch, etc). Re-check and show confirmation.
+    if (err.code === '23505') {
+      const retryMatch = await findMatchingUser(phone, email);
+      if (retryMatch) {
+        const existing = await db('customers')
+          .where({ tailor_id: tailorId, user_id: retryMatch.id })
+          .first();
+
+        if (existing) {
+          throw new AppError(
+            'You already have this customer in your list',
+            409,
+            'DUPLICATE_CUSTOMER'
+          );
+        }
+
+        return {
+          requires_confirmation: true,
+          existing_user: {
+            id: retryMatch.id,
+            name: retryMatch.name,
+            initials: retryMatch.initials,
+            avatar_color: retryMatch.avatar_color,
+            location_city: retryMatch.location_city,
+            account_status: retryMatch.account_status,
+          },
+          match_field: retryMatch.phone === phone ? 'phone' : 'email',
+        };
+      }
     }
-
-    const [customer] = await trx('customers')
-      .insert({
-        tailor_id: tailorId,
-        user_id: userId,
-        name: data.name,
-        phone,
-        email,
-        location: data.location || null,
-        initials,
-        avatar_color: avatarColor,
-        measurements: JSON.stringify({ _version: 1, standard: {}, custom: [] }),
-        custom_fields: JSON.stringify([]),
-      })
-      .returning('*');
-
-    return customer;
-  });
+    throw err;
+  }
 }
 
 /**
