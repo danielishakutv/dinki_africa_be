@@ -352,27 +352,37 @@ async function updateMeasurements(tailorId, customerId, data) {
 
   if (!customer) throw new AppError('Customer not found', 404, 'NOT_FOUND');
 
-  // Archive current measurements before overwriting
-  if (customer.user_id && customer.measurements) {
+  // Archive current measurements before overwriting (only if there's real data)
+  const current = customer.measurements || {};
+  const hasData = current.standard && Object.keys(current.standard).some(k => current.standard[k] != null);
+  if (customer.user_id && hasData) {
     await db('measurement_history').insert({
       user_id: customer.user_id,
       tailor_id: tailorId,
       customer_id: customerId,
-      measurements: JSON.stringify(customer.measurements),
+      measurements: JSON.stringify(current),
     });
   }
 
-  const measurements = customer.measurements || { _version: 1, standard: {}, custom: [] };
-  const standardFields = ['neck', 'chest', 'waist', 'hips', 'shoulder', 'sleeve', 'length', 'inseam'];
+  // Build the measurements object from what the frontend sends
+  // Frontend sends: { neck: 15, chest: 38, hip: 40, ..., _custom: [...], notes: '...' }
+  const measurements = { _version: (current._version || 0) + 1, standard: {}, custom: [] };
+  const reservedKeys = ['_version', '_custom', 'notes', 'standard', 'custom'];
 
-  for (const field of standardFields) {
-    if (data[field] !== undefined) {
-      measurements.standard[field] = data[field];
+  // All non-reserved keys are measurement values
+  for (const [key, value] of Object.entries(data)) {
+    if (!reservedKeys.includes(key) && value != null && value !== '') {
+      measurements.standard[key] = Number(value) || 0;
     }
   }
 
   if (data.notes !== undefined) {
     measurements.notes = data.notes;
+  }
+
+  // Preserve custom field definitions
+  if (Array.isArray(data._custom)) {
+    measurements.custom = data._custom;
   }
 
   const [updated] = await db('customers')

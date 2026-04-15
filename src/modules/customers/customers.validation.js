@@ -19,14 +19,7 @@ const updateCustomerSchema = [
 ];
 
 const updateMeasurementsSchema = [
-  body('neck').optional().isFloat({ min: 0 }).withMessage('Must be a positive number'),
-  body('chest').optional().isFloat({ min: 0 }),
-  body('waist').optional().isFloat({ min: 0 }),
-  body('hips').optional().isFloat({ min: 0 }),
-  body('shoulder').optional().isFloat({ min: 0 }),
-  body('sleeve').optional().isFloat({ min: 0 }),
-  body('length').optional().isFloat({ min: 0 }),
-  body('inseam').optional().isFloat({ min: 0 }),
+  // Accept any measurement keys as the frontend sends dynamic fields
   body('notes').optional().trim().isLength({ max: 1000 }),
 ];
 
