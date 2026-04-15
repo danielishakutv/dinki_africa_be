@@ -24,7 +24,7 @@ function randomColor() {
 async function findMatchingUser(phone, email) {
   if (!phone && !email) return null;
 
-  const query = db('users').whereNull('deleted_at');
+  const query = db('users');
 
   if (phone && email) {
     query.where(function () {
@@ -168,7 +168,7 @@ async function createCustomer(tailorId, data) {
 async function linkCustomer(tailorId, data) {
   const { user_id, name, phone, email, location } = data;
 
-  const user = await db('users').where({ id: user_id }).whereNull('deleted_at').first();
+  const user = await db('users').where({ id: user_id }).first();
   if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');
 
   // Check for duplicate link
