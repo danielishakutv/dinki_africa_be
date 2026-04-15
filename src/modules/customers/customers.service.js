@@ -110,6 +110,8 @@ async function createCustomer(tailorId, data) {
       existing_user: {
         id: matchedUser.id,
         name: matchedUser.name,
+        phone: matchedUser.phone,
+        email: matchedUser.account_status === 'inactive' ? null : matchedUser.email,
         initials: matchedUser.initials,
         avatar_color: matchedUser.avatar_color,
         location_city: matchedUser.location_city,
@@ -183,6 +185,8 @@ async function createCustomer(tailorId, data) {
           existing_user: {
             id: retryMatch.id,
             name: retryMatch.name,
+            phone: retryMatch.phone,
+            email: retryMatch.account_status === 'inactive' ? null : retryMatch.email,
             initials: retryMatch.initials,
             avatar_color: retryMatch.avatar_color,
             location_city: retryMatch.location_city,
@@ -201,7 +205,7 @@ async function createCustomer(tailorId, data) {
  * Called after the tailor confirms the identity match.
  */
 async function linkCustomer(tailorId, data) {
-  const { user_id, name, phone, email, location } = data;
+  const { user_id } = data;
 
   const user = await db('users').where({ id: user_id }).first();
   if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');
@@ -215,17 +219,18 @@ async function linkCustomer(tailorId, data) {
     throw new AppError('You already have this customer in your list', 409, 'DUPLICATE_CUSTOMER');
   }
 
-  const custName = name || user.name;
-  const initials = generateInitials(custName);
+  // Use the user's own data as the source of truth
+  const initials = user.initials || generateInitials(user.name);
+  const userEmail = user.account_status === 'inactive' ? null : user.email;
 
   const [customer] = await db('customers')
     .insert({
       tailor_id: tailorId,
       user_id,
-      name: custName,
-      phone: phone || user.phone || null,
-      email: email || user.email || null,
-      location: location || [user.location_city, user.location_state].filter(Boolean).join(', ') || null,
+      name: user.name,
+      phone: user.phone || null,
+      email: userEmail,
+      location: [user.location_city, user.location_state].filter(Boolean).join(', ') || null,
       initials,
       avatar_color: user.avatar_color || randomColor(),
       measurements: JSON.stringify({ _version: 1, standard: {}, custom: [] }),
