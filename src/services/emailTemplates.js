@@ -140,7 +140,7 @@ const emailTemplates = {
         ${role === 'tailor' ? tailorBenefits : customerBenefits}
       </ul>
       <p style="margin:0 0 24px;color:#4B5563;font-size:15px;line-height:1.7;">
-        We're just getting started, and having you here means the world to us. If you ever need anything, just reply to this email — I read every single one.
+        We're just getting started, and having you here means the world to us. Follow us <strong>@dinki.africa</strong> on social media for updates, style inspiration, and behind-the-scenes stories from our amazing tailors.
       </p>
       ${button('Login to Your Account', `${FRONTEND_URL}`)}
       <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 0;border-top:1px solid #E5E7EB;padding-top:20px;">
