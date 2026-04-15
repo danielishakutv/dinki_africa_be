@@ -56,8 +56,14 @@ async function listCustomers(tailorId, { search, page = 1, limit = 20 }) {
 
   const [{ count }] = await query.clone().count('id as count');
   const customers = await query
-    .select('id', 'name', 'phone', 'email', 'location', 'initials', 'avatar_color', 'created_at')
-    .orderBy('name', 'asc')
+    .select(
+      'customers.id', 'customers.name', 'customers.phone', 'customers.email',
+      'customers.location', 'customers.initials', 'customers.avatar_color',
+      'customers.user_id', 'customers.created_at',
+      'users.username'
+    )
+    .leftJoin('users', 'customers.user_id', 'users.id')
+    .orderBy('customers.name', 'asc')
     .limit(limit)
     .offset(offset);
 
@@ -74,7 +80,9 @@ async function listCustomers(tailorId, { search, page = 1, limit = 20 }) {
 
 async function getCustomer(tailorId, customerId) {
   const customer = await db('customers')
-    .where({ id: customerId, tailor_id: tailorId })
+    .where({ 'customers.id': customerId, 'customers.tailor_id': tailorId })
+    .select('customers.*', 'users.username')
+    .leftJoin('users', 'customers.user_id', 'users.id')
     .first();
 
   if (!customer) throw new AppError('Customer not found', 404, 'NOT_FOUND');
