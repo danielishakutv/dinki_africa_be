@@ -113,25 +113,45 @@ const emailTemplates = {
   },
 
   /**
-   * Welcome email after verification
+   * Welcome email after verification — personal note from CEO
    */
   welcome({ name, role }) {
-    const roleMessage = role === 'tailor'
-      ? 'Set up your storefront and start connecting with customers.'
-      : 'Browse tailors, place orders, and get fitted perfectly.';
+    const tailorBenefits = `
+      <li style="margin:0 0 6px;color:#4B5563;font-size:15px;line-height:1.5;">Your own <strong>digital storefront</strong> to showcase your craft to thousands</li>
+      <li style="margin:0 0 6px;color:#4B5563;font-size:15px;line-height:1.5;">Direct orders from customers who value quality tailoring</li>
+      <li style="margin:0 0 6px;color:#4B5563;font-size:15px;line-height:1.5;">Tools to manage jobs, measurements, and customers — all in one place</li>
+    `;
+    const customerBenefits = `
+      <li style="margin:0 0 6px;color:#4B5563;font-size:15px;line-height:1.5;">Access to <strong>skilled, verified tailors</strong> across Africa</li>
+      <li style="margin:0 0 6px;color:#4B5563;font-size:15px;line-height:1.5;">Your measurements saved securely — order from anywhere, anytime</li>
+      <li style="margin:0 0 6px;color:#4B5563;font-size:15px;line-height:1.5;">Browse styles, fabrics, and get clothes made <strong>just for you</strong></li>
+    `;
 
     return baseLayout(`
-      <h2 style="margin:0 0 8px;color:${BRAND_COLOR};font-size:20px;">Welcome to Dinki Africa!</h2>
-      <p style="margin:0 0 8px;color:#4B5563;font-size:15px;line-height:1.6;">
-        Hi ${name}, your account is now verified and ready to go.
+      <h2 style="margin:0 0 16px;color:${BRAND_COLOR};font-size:22px;font-weight:700;">Welcome to the Family, ${name}!</h2>
+      <p style="margin:0 0 14px;color:#4B5563;font-size:15px;line-height:1.7;">
+        I'm Daniel, and I built Dinki Africa with one dream — to celebrate the incredible talent of African tailors and make it effortless for people to get clothes that truly fit.
       </p>
-      <p style="margin:0 0 8px;color:#4B5563;font-size:15px;line-height:1.6;">
-        ${roleMessage}
+      <p style="margin:0 0 14px;color:#4B5563;font-size:15px;line-height:1.7;">
+        By joining us today, you're now part of a movement that's changing how Africa experiences fashion. Every stitch tells a story, and yours starts right here.
       </p>
-      ${button('Go to Dashboard', `${FRONTEND_URL}/dashboard`)}
-      <p style="margin:0;color:#6B7280;font-size:13px;line-height:1.5;">
-        Need help? Reply to this email or visit our help center.
+      <p style="margin:0 0 8px;color:${BRAND_COLOR};font-size:15px;font-weight:600;">Here's what's waiting for you:</p>
+      <ul style="margin:0 0 20px;padding-left:20px;">
+        ${role === 'tailor' ? tailorBenefits : customerBenefits}
+      </ul>
+      <p style="margin:0 0 24px;color:#4B5563;font-size:15px;line-height:1.7;">
+        We're just getting started, and having you here means the world to us. If you ever need anything, just reply to this email — I read every single one.
       </p>
+      ${button('Login to Your Account', `${FRONTEND_URL}`)}
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 0;border-top:1px solid #E5E7EB;padding-top:20px;">
+        <tr>
+          <td>
+            <p style="margin:0 0 2px;color:${BRAND_COLOR};font-size:15px;font-weight:700;">Daniel Ishaku</p>
+            <p style="margin:0 0 2px;color:#6B7280;font-size:13px;">Founder & CEO, Dinki Africa</p>
+            <p style="margin:0;color:${ACCENT_COLOR};font-size:13px;font-style:italic;">"Every stitch tells a story."</p>
+          </td>
+        </tr>
+      </table>
     `);
   },
 

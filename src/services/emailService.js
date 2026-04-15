@@ -23,10 +23,10 @@ const SUPPORT_ADDRESS = process.env.EMAIL_SUPPORT || 'support@dinki.africa';
 /**
  * Send a raw email
  */
-async function sendEmail({ to, subject, html, text }) {
+async function sendEmail({ to, subject, html, text, from }) {
   try {
     const info = await transporter.sendMail({
-      from: FROM_ADDRESS,
+      from: from || FROM_ADDRESS,
       to,
       subject,
       html,
@@ -71,9 +71,10 @@ async function sendPasswordReset(email, resetToken, name) {
 async function sendWelcome(email, name, role) {
   return sendEmail({
     to: email,
-    subject: 'Welcome to Dinki Africa!',
+    subject: `${name}, welcome to the Dinki Africa family!`,
     html: emailTemplates.welcome({ name, role }),
-    text: `Welcome to Dinki Africa, ${name}! Your account is ready.`,
+    text: `Hi ${name}, I'm Daniel Ishaku, founder of Dinki Africa. Welcome to the family! We built Dinki to celebrate African tailoring talent and make it easy for everyone to get clothes that truly fit. Login at https://dinki.africa to get started. — Daniel Ishaku, CEO, Dinki Africa`,
+    from: '"Daniel Ishaku — Dinki Africa" <no-reply@dinki.africa>',
   });
 }
 
