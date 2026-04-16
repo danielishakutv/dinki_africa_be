@@ -134,14 +134,15 @@ async function searchUsers(query, { role, excludeUserId, limit = 10 }) {
     .where(function () {
       this.whereILike('name', `%${query}%`)
         .orWhereILike('email', `%${query}%`)
-        .orWhereILike('username', `%${query}%`);
+        .orWhereILike('username', `%${query}%`)
+        .orWhereILike('phone', `%${query}%`);
     });
 
   if (role) q.where('role', role);
   if (excludeUserId) q.whereNot('id', excludeUserId);
 
   const users = await q
-    .select('id', 'name', 'email', 'initials', 'avatar_color', 'avatar_url', 'role')
+    .select('id', 'name', 'email', 'phone', 'initials', 'avatar_color', 'avatar_url', 'role')
     .orderBy('name', 'asc')
     .limit(limit);
 

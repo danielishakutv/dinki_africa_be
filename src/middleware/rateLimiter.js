@@ -21,4 +21,25 @@ function createLimiter(maxAttempts, windowMinutes) {
   });
 }
 
-module.exports = { createLimiter };
+function createSearchLimiter(maxAttempts, windowMinutes) {
+  return rateLimit({
+    windowMs: windowMinutes * 60 * 1000,
+    max: maxAttempts,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+      return req.user?.id || req.ip;
+    },
+    handler: (req, res) => {
+      res.status(429).json({
+        success: false,
+        error: {
+          code: 'RATE_LIMITED',
+          message: `Too many search requests. Try again in ${windowMinutes} minutes.`,
+        },
+      });
+    },
+  });
+}
+
+module.exports = { createLimiter, createSearchLimiter };

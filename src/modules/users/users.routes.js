@@ -5,10 +5,13 @@ const { validate } = require('../../middleware/validate');
 const { updateProfileSchema, onboardingSchema, preferencesSchema, searchUsersSchema, usernameSchema, checkUsernameSchema, adminUsernameSchema } = require('./users.validation');
 const { upload, processUpload } = require('../../middleware/upload');
 const authorize = require('../../middleware/authorize');
+const { createSearchLimiter } = require('../../middleware/rateLimiter');
+
+const searchLimiter = createSearchLimiter(30, 1); // 30 requests per minute
 
 router.use(auth);
 
-router.get('/search', validate(searchUsersSchema), ctrl.searchUsers);
+router.get('/search', searchLimiter, validate(searchUsersSchema), ctrl.searchUsers);
 router.get('/check-username', validate(checkUsernameSchema), ctrl.checkUsername);
 router.get('/me', ctrl.getProfile);
 router.patch('/me', validate(updateProfileSchema), ctrl.updateProfile);
