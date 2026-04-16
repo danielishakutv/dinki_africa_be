@@ -33,6 +33,7 @@ async function getStorefront(slug) {
       'tp.storefront_slug',
       'tp.storefront_bio',
       'tp.storefront_image',
+      'tp.storefront_setup_completed',
       'tp.cover_image_position',
       'u.created_at'
     )
@@ -151,6 +152,7 @@ async function updateStorefront(tailorId, data) {
   if (data.start_price !== undefined) updates.start_price = data.start_price;
   if (data.years_experience !== undefined) updates.years_experience = data.years_experience;
   if (data.cover_position !== undefined) updates.cover_image_position = data.cover_position;
+  if (data.setup_completed !== undefined) updates.storefront_setup_completed = !!data.setup_completed;
 
   if (data.slug !== undefined) {
     // Check slug uniqueness
@@ -167,7 +169,7 @@ async function updateStorefront(tailorId, data) {
   const [updated] = await db('tailor_profiles')
     .where({ user_id: tailorId })
     .update(updates)
-    .returning(['storefront_slug', 'storefront_bio', 'storefront_image', 'cover_image_position', 'response_time', 'start_price', 'years_experience', 'updated_at']);
+    .returning(['storefront_slug', 'storefront_bio', 'storefront_image', 'cover_image_position', 'storefront_setup_completed', 'response_time', 'start_price', 'years_experience', 'updated_at']);
 
   // Invalidate cache
   await redis.del(`storefront:${profile.storefront_slug}`);

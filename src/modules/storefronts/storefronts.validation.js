@@ -22,6 +22,7 @@ const updateStorefrontSchema = [
   body('start_price').optional().isInt({ min: 0 }).toInt(),
   body('years_experience').optional().isInt({ min: 0, max: 80 }).toInt(),
   body('cover_position').optional().isString().isLength({ max: 50 }).withMessage('Cover position must be under 50 characters'),
+  body('setup_completed').optional().isBoolean().withMessage('setup_completed must be boolean'),
 ];
 
 const addPortfolioSchema = [

@@ -25,6 +25,7 @@ async function getProfile(userId) {
         storefront_slug: profile.storefront_slug,
         storefront_bio: profile.storefront_bio,
         storefront_image: profile.storefront_image,
+        storefront_setup_completed: profile.storefront_setup_completed || false,
       };
     }
   }
