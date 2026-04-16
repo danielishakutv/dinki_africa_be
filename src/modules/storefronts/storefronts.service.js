@@ -12,7 +12,10 @@ async function getStorefront(slug) {
 
   const profile = await db('tailor_profiles as tp')
     .join('users as u', 'u.id', 'tp.user_id')
-    .where({ 'tp.storefront_slug': slug, 'u.is_active': true })
+    .where('u.is_active', true)
+    .where(function () {
+      this.where('tp.storefront_slug', slug).orWhere('u.username', slug);
+    })
     .select(
       'u.id as tailor_id',
       'u.name',
@@ -67,9 +70,12 @@ async function getStorefront(slug) {
 }
 
 async function getPortfolio(slug, { page = 1, limit = 20 }) {
-  const profile = await db('tailor_profiles')
-    .where({ storefront_slug: slug })
-    .select('user_id')
+  const profile = await db('tailor_profiles as tp')
+    .join('users as u', 'u.id', 'tp.user_id')
+    .where(function () {
+      this.where('tp.storefront_slug', slug).orWhere('u.username', slug);
+    })
+    .select('tp.user_id')
     .first();
 
   if (!profile) throw new AppError('Storefront not found', 404, 'NOT_FOUND');
@@ -100,9 +106,12 @@ async function getPortfolio(slug, { page = 1, limit = 20 }) {
 }
 
 async function getReviews(slug, { page = 1, limit = 10 }) {
-  const profile = await db('tailor_profiles')
-    .where({ storefront_slug: slug })
-    .select('user_id')
+  const profile = await db('tailor_profiles as tp')
+    .join('users as u', 'u.id', 'tp.user_id')
+    .where(function () {
+      this.where('tp.storefront_slug', slug).orWhere('u.username', slug);
+    })
+    .select('tp.user_id')
     .first();
 
   if (!profile) throw new AppError('Storefront not found', 404, 'NOT_FOUND');
