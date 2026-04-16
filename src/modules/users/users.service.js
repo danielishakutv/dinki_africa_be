@@ -132,8 +132,10 @@ async function searchUsers(query, { role, excludeUserId, limit = 10 }) {
   const q = db('users')
     .where('is_active', true)
     .whereNull('deleted_at')
-    .where('onboarding_completed', true)
-    .whereILike('name', `%${query}%`);
+    .where(function () {
+      this.whereILike('name', `%${query}%`)
+        .orWhereILike('email', `%${query}%`);
+    });
 
   if (role) q.where('role', role);
   if (excludeUserId) q.whereNot('id', excludeUserId);
