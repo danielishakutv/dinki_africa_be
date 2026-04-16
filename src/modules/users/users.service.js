@@ -130,11 +130,11 @@ async function softDelete(userId) {
 
 async function searchUsers(query, { role, excludeUserId, limit = 10 }) {
   const q = db('users')
-    .where('is_active', true)
     .whereNull('deleted_at')
     .where(function () {
       this.whereILike('name', `%${query}%`)
-        .orWhereILike('email', `%${query}%`);
+        .orWhereILike('email', `%${query}%`)
+        .orWhereILike('username', `%${query}%`);
     });
 
   if (role) q.where('role', role);
