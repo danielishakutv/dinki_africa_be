@@ -37,7 +37,7 @@ const config = {
 
   upload: {
     dir: process.env.UPLOAD_DIR || 'uploads',
-    maxFileSize: parseInt(process.env.MAX_FILE_SIZE, 10) || 1048576,
+    maxFileSize: parseInt(process.env.MAX_FILE_SIZE, 10) || 819200,
     baseUrl: process.env.UPLOAD_BASE_URL || '',
   },
 };

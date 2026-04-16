@@ -28,16 +28,16 @@ async function processImage(buffer, filename) {
   const name = `${filename}.${ext}`;
   const thumbName = `${filename}_thumb.${ext}`;
 
-  // Full size (max 1200px width, 80% quality)
+  // Full size (max 1000px width, 75% quality)
   await sharp(buffer)
-    .resize(1200, null, { withoutEnlargement: true })
-    .webp({ quality: 80 })
+    .resize(1000, null, { withoutEnlargement: true })
+    .webp({ quality: 75 })
     .toFile(path.join(uploadDir, name));
 
   // Thumbnail (200px width)
   await sharp(buffer)
     .resize(200, null, { withoutEnlargement: true })
-    .webp({ quality: 70 })
+    .webp({ quality: 65 })
     .toFile(path.join(uploadDir, thumbName));
 
   const base = config.upload.baseUrl;
