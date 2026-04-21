@@ -150,6 +150,39 @@ async function getReviews(slug, { page = 1, limit = 10 }) {
   };
 }
 
+async function getShareMeta(slug) {
+  const config = require('../../config');
+  const storefront = await getStorefront(slug); // reuses Redis cache
+
+  const fallbackImage = `${config.frontendUrl}/og-image.png`;
+
+  const specialties = Array.isArray(storefront.specialties)
+    ? storefront.specialties.slice(0, 2).join(', ')
+    : '';
+  const location = [storefront.location_city, storefront.location_state]
+    .filter(Boolean).join(', ');
+
+  const parts = [];
+  if (specialties) parts.push(specialties);
+  if (location) parts.push(location);
+  if (storefront.rating_avg > 0 && storefront.rating_count > 0) {
+    const reviews = storefront.rating_count;
+    parts.push(`★${parseFloat(storefront.rating_avg).toFixed(1)} · ${reviews} review${reviews !== 1 ? 's' : ''}`);
+  }
+  if (storefront.start_price) {
+    parts.push(`from ₦${new Intl.NumberFormat('en-NG').format(storefront.start_price / 100)}`);
+  }
+
+  return {
+    title: `${storefront.name} — Dinki Africa`,
+    description: parts.length
+      ? parts.join(' · ')
+      : `Discover ${storefront.name}'s work on Dinki Africa`,
+    image_url: storefront.storefront_image || storefront.avatar_url || fallbackImage,
+    canonical_url: `${config.frontendUrl}/t/${storefront.storefront_slug}`,
+  };
+}
+
 async function updateStorefront(tailorId, data) {
   const profile = await db('tailor_profiles').where({ user_id: tailorId }).first();
   if (!profile) throw new AppError('Tailor profile not found', 404, 'NOT_FOUND');
@@ -228,6 +261,7 @@ module.exports = {
   getStorefront,
   getPortfolio,
   getReviews,
+  getShareMeta,
   updateStorefront,
   addPortfolioItem,
   removePortfolioItem,

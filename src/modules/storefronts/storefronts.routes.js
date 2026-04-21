@@ -15,6 +15,7 @@ const {
 router.get('/:slug', validate(slugParam), ctrl.getStorefront);
 router.get('/:slug/portfolio', validate(slugParam), ctrl.getPortfolio);
 router.get('/:slug/reviews', validate(listReviewsSchema), ctrl.getReviews);
+router.get('/:slug/share-meta', validate(slugParam), ctrl.getShareMeta);
 
 // Tailor-only routes
 router.patch('/me', auth, authorize('tailor'), validate(updateStorefrontSchema), ctrl.updateStorefront);

@@ -29,6 +29,15 @@ exports.getReviews = async (req, res, next) => {
   }
 };
 
+exports.getShareMeta = async (req, res, next) => {
+  try {
+    const meta = await service.getShareMeta(req.params.slug);
+    res.json({ success: true, data: meta });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.updateStorefront = async (req, res, next) => {
   try {
     const updated = await service.updateStorefront(req.user.id, req.body);

@@ -27,6 +27,8 @@ const config = {
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : 'http://localhost:5173',
   },
 
+  frontendUrl: process.env.FRONTEND_URL || 'https://dinki.africa',
+
   smtp: {
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT, 10) || 587,

@@ -97,6 +97,54 @@ app.use('/v1/conversations', require('./modules/messaging/messaging.routes'));
 app.use('/v1/notifications', require('./modules/notifications/notifications.routes'));
 app.use('/v1/uploads', require('./modules/uploads/uploads.routes'));
 
+// OG meta page for shared storefront links.
+// Crawlers (WhatsApp, iMessage, Facebook) GET /t/:slug here and receive tailor-specific
+// og:* / twitter:* meta tags. Real users are immediately JS-redirected to the SPA.
+const _escapeHtml = (s) => String(s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+app.get('/t/:slug', async (req, res, next) => {
+  const { slug } = req.params;
+  if (!/^[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*$/.test(slug)) {
+    return next(new AppError('Invalid storefront slug', 400, 'INVALID_SLUG'));
+  }
+  try {
+    const storefrontsService = require('./modules/storefronts/storefronts.service');
+    const meta = await storefrontsService.getShareMeta(slug);
+    const spaUrl = `${config.frontendUrl}/t/${encodeURIComponent(slug)}`;
+    const e = _escapeHtml;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>${e(meta.title)}</title>
+  <meta property="og:type" content="profile" />
+  <meta property="og:site_name" content="Dinki Africa" />
+  <meta property="og:title" content="${e(meta.title)}" />
+  <meta property="og:description" content="${e(meta.description)}" />
+  <meta property="og:image" content="${e(meta.image_url)}" />
+  <meta property="og:url" content="${e(meta.canonical_url)}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${e(meta.title)}" />
+  <meta name="twitter:description" content="${e(meta.description)}" />
+  <meta name="twitter:image" content="${e(meta.image_url)}" />
+  <link rel="canonical" href="${e(meta.canonical_url)}" />
+  <meta http-equiv="refresh" content="0; url=${e(spaUrl)}" />
+</head>
+<body>
+  <script>window.location.replace(${JSON.stringify(spaUrl)});</script>
+  <noscript><a href="${e(spaUrl)}">${e(meta.title)}</a></noscript>
+</body>
+</html>`);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // 404 handler
 app.all('*', (req, res, next) => {
   next(new AppError(`Route ${req.originalUrl} not found`, 404, 'NOT_FOUND'));
