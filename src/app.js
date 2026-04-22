@@ -112,7 +112,7 @@ app.get('/t/:slug', async (req, res, next) => {
   try {
     const storefrontsService = require('./modules/storefronts/storefronts.service');
     const meta = await storefrontsService.getShareMeta(slug);
-    const spaUrl = `${config.frontendUrl}/t/${encodeURIComponent(slug)}`;
+    const spaUrl = `${config.frontendUrl}/${encodeURIComponent(slug)}`;
     const e = _escapeHtml;
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');

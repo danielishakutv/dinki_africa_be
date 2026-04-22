@@ -179,7 +179,7 @@ async function getShareMeta(slug) {
       ? parts.join(' · ')
       : `Discover ${storefront.name}'s work on Dinki Africa`,
     image_url: storefront.storefront_image || storefront.avatar_url || fallbackImage,
-    canonical_url: `${config.frontendUrl}/t/${storefront.storefront_slug}`,
+    canonical_url: `${config.frontendUrl}/${storefront.storefront_slug}`,
   };
 }
 
