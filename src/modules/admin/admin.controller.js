@@ -28,3 +28,21 @@ exports.stats = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.broadcastNotification = async (req, res, next) => {
+  try {
+    const { target, title, message, link } = req.body;
+    const result = await service.broadcastNotification({
+      actorId: req.user.id,
+      target,
+      title,
+      message,
+      link,
+      ip: req.ip,
+      io: req.app.get('io'),
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+};
