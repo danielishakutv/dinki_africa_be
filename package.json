@@ -8,7 +8,8 @@
     "start": "node src/server.js",
     "migrate": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
-    "seed": "knex seed:run"
+    "seed": "knex seed:run",
+    "promote-admin": "node scripts/promote-admin.js"
   },
   "engines": {
     "node": ">=20.0.0"
