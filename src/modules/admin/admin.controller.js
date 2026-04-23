@@ -6,6 +6,8 @@
  * roles — trust the router-level guard, keep handlers focused on behaviour.
  */
 
+const service = require('./admin.service');
+
 exports.ping = (req, res) => {
   res.json({
     success: true,
@@ -16,4 +18,13 @@ exports.ping = (req, res) => {
       serverTime: new Date().toISOString(),
     },
   });
+};
+
+exports.stats = async (req, res, next) => {
+  try {
+    const data = await service.getPlatformStats();
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
 };

@@ -9,5 +9,6 @@ router.use(auth);
 router.use(authorize('admin', 'superadmin'));
 
 router.get('/ping', ctrl.ping);
+router.get('/stats', ctrl.stats);
 
 module.exports = router;
