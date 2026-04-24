@@ -8,6 +8,7 @@
 
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const { nanoid } = require('nanoid');
 const knex = require('../../config/database');
 const redis = require('../../config/redis');
 const config = require('../../config');
@@ -431,6 +432,45 @@ async function updateUser({ actor, targetId, updates, ip }) {
 
   await knex.transaction(async (trx) => {
     await trx('users').where({ id: targetId }).update(patch);
+
+    // Role change side-effects. Treat a role switch as "new account for that
+    // role" — without this, a freshly-made tailor has no tailor_profiles row
+    // and their dashboard falls into an error loop.
+    if (changes.role) {
+      const newRole = changes.role.to;
+
+      // Force onboarding for non-staff roles so they re-enter the flow that
+      // collects location, specialties, etc. Admin/superadmin don't use the
+      // onboarding page, so we leave their flag alone.
+      if (newRole === 'customer' || newRole === 'tailor') {
+        await trx('users').where({ id: targetId }).update({ onboarding_completed: false });
+      }
+
+      if (newRole === 'tailor') {
+        const finalName = patch.name || target.name || 'Tailor';
+        const existingProfile = await trx('tailor_profiles').where({ user_id: targetId }).first();
+
+        if (!existingProfile) {
+          // First time as a tailor — mirror the signup-time setup so the
+          // dashboard has something to read.
+          const baseSlug = finalName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'tailor';
+          await trx('tailor_profiles').insert({
+            user_id: targetId,
+            storefront_slug: `${baseSlug}-${nanoid(4)}`,
+            storefront_setup_completed: false,
+          });
+        } else {
+          // Returning tailor (was a tailor before, switched away, now back).
+          // Keep the slug for URL continuity but wipe storefront content so
+          // they go through the setup wizard again.
+          await trx('tailor_profiles').where({ user_id: targetId }).update({
+            storefront_setup_completed: false,
+            storefront_bio: null,
+            storefront_image: null,
+          });
+        }
+      }
+    }
 
     if (mustRevokeSessions) {
       await trx('refresh_tokens').where({ user_id: targetId }).del();
