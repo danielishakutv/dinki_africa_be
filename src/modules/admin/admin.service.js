@@ -6,8 +6,13 @@
  * with FILTER clauses over N round-trips.
  */
 
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const knex = require('../../config/database');
+const redis = require('../../config/redis');
+const config = require('../../config');
 const AppError = require('../../utils/AppError');
+const emailService = require('../../services/emailService');
 
 /**
  * Hard cap on a single broadcast's recipient count. Platform is young and
@@ -15,6 +20,11 @@ const AppError = require('../../utils/AppError');
  * from fanning out INSERTs and socket emits into millions of rows.
  */
 const BROADCAST_MAX_RECIPIENTS = 10000;
+
+const SALT_ROUNDS = 12;
+const RESET_TOKEN_EXPIRY = 60 * 60; // seconds — matches auth module
+const VALID_ROLES = ['customer', 'tailor', 'admin', 'superadmin'];
+const ROLE_RANK = { customer: 0, tailor: 0, admin: 1, superadmin: 2 };
 
 /**
  * Single-scan user breakdown:
@@ -197,6 +207,338 @@ async function broadcastNotification({ actorId, target, title, message, link, ip
   };
 }
 
+/* ------------------------------------------------------------------ *
+ *  User management                                                    *
+ * ------------------------------------------------------------------ */
+
+const USER_LIST_COLUMNS = [
+  'id', 'email', 'name', 'username', 'phone', 'role',
+  'email_verified', 'is_active', 'account_status',
+  'avatar_url', 'initials', 'avatar_color',
+  'last_login_at', 'login_count', 'created_at',
+];
+
+const USER_DETAIL_COLUMNS = [
+  ...USER_LIST_COLUMNS,
+  'bio', 'location_city', 'location_state', 'location_country',
+  'specialties', 'onboarding_completed', 'referral_code',
+  'failed_login_count', 'locked_until', 'updated_at',
+];
+
+/**
+ * Refuse to touch a superadmin unless the actor is a superadmin too.
+ * This is the single gate for "escalation protection" — call it at the top
+ * of every mutation on a target user.
+ */
+function assertActorCanTouchTarget(actor, target) {
+  if (actor.id === target.id) {
+    // Nobody gets to demote, deactivate, or role-change themselves via
+    // the admin panel. They can edit their own profile from /profile.
+    // We only block *risky* operations here — callers decide which fields
+    // matter (see updateUser below).
+  }
+  if (target.role === 'superadmin' && actor.role !== 'superadmin') {
+    throw new AppError(
+      'Only a superadmin can modify another superadmin.',
+      403,
+      'FORBIDDEN',
+    );
+  }
+}
+
+async function listUsers({ q, role, status, page = 1, limit = 20 }) {
+  const pg = Math.max(1, parseInt(page, 10) || 1);
+  const lim = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+  const offset = (pg - 1) * lim;
+
+  const qb = knex('users');
+
+  if (q && q.trim()) {
+    const term = `%${q.trim()}%`;
+    qb.where(function () {
+      this.whereILike('name', term)
+        .orWhereILike('email', term)
+        .orWhereILike('username', term)
+        .orWhereILike('phone', term);
+    });
+  }
+
+  if (role && role !== 'all') {
+    if (!VALID_ROLES.includes(role)) {
+      throw new AppError('Invalid role filter', 400, 'VALIDATION_ERROR');
+    }
+    qb.where('role', role);
+  }
+
+  if (status === 'active') qb.where('is_active', true);
+  else if (status === 'inactive') qb.where('is_active', false);
+  // 'all' (or missing) — no filter
+
+  const countQb = qb.clone().count('id as c').first();
+  const rowsQb = qb
+    .clone()
+    .select(USER_LIST_COLUMNS)
+    .orderBy('created_at', 'desc')
+    .limit(lim)
+    .offset(offset);
+
+  const [countRow, rows] = await Promise.all([countQb, rowsQb]);
+  const total = parseInt(countRow?.c || 0, 10);
+
+  return {
+    users: rows,
+    pagination: {
+      page: pg,
+      limit: lim,
+      total,
+      totalPages: Math.ceil(total / lim),
+    },
+  };
+}
+
+async function getUserDetail(userId) {
+  const user = await knex('users')
+    .where({ id: userId })
+    .select(USER_DETAIL_COLUMNS)
+    .first();
+
+  if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');
+
+  if (user.role === 'tailor') {
+    const profile = await knex('tailor_profiles').where({ user_id: userId }).first();
+    if (profile) {
+      user.tailor_profile = {
+        verified: profile.verified,
+        completed_jobs: profile.completed_jobs,
+        rating_avg: profile.rating_avg,
+        rating_count: profile.rating_count,
+        storefront_slug: profile.storefront_slug,
+        start_price: profile.start_price,
+        years_experience: profile.years_experience,
+      };
+    }
+  }
+
+  // Light-touch activity summary — useful for admin judgement without
+  // dragging in full job/order history.
+  const [jobsRow, ordersRow] = await Promise.all([
+    knex('jobs').where({ tailor_id: userId }).count('id as c').first(),
+    knex('orders')
+      .where({ customer_id: userId })
+      .orWhere({ tailor_id: userId })
+      .count('id as c')
+      .first(),
+  ]);
+  user.activity = {
+    jobs: parseInt(jobsRow?.c || 0, 10),
+    orders: parseInt(ordersRow?.c || 0, 10),
+  };
+
+  return user;
+}
+
+/**
+ * Update a user's profile/role/status.
+ *
+ * Allowed fields:
+ *   name, phone, username, email        — any admin
+ *   is_active                           — any admin (but can't deactivate self or a superadmin)
+ *   role                                — superadmin only
+ *
+ * Side-effects:
+ *   - Changing email flips email_verified back to false.
+ *   - Changing role or deactivating wipes refresh_tokens (forces re-login).
+ *   - Every successful call writes one audit_log row.
+ */
+async function updateUser({ actor, targetId, updates, ip }) {
+  const target = await knex('users').where({ id: targetId }).first();
+  if (!target) throw new AppError('User not found', 404, 'NOT_FOUND');
+
+  assertActorCanTouchTarget(actor, target);
+
+  const patch = {};
+  const changes = {};
+
+  // Plain profile fields — any admin
+  for (const field of ['name', 'phone']) {
+    if (updates[field] !== undefined && updates[field] !== target[field]) {
+      patch[field] = updates[field];
+      changes[field] = { from: target[field], to: updates[field] };
+    }
+  }
+
+  if (patch.name) {
+    patch.initials = patch.name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
+  }
+
+  // Username — uniqueness check
+  if (updates.username !== undefined && updates.username !== target.username) {
+    const taken = await knex('users')
+      .whereRaw('LOWER(username) = ?', [String(updates.username).toLowerCase()])
+      .whereNot('id', targetId)
+      .first('id');
+    if (taken) throw new AppError('Username is already taken', 409, 'USERNAME_TAKEN');
+    patch.username = updates.username;
+    changes.username = { from: target.username, to: updates.username };
+  }
+
+  // Email — uniqueness + reset verification flag
+  if (updates.email !== undefined) {
+    const newEmail = String(updates.email).trim().toLowerCase();
+    if (newEmail !== (target.email || '').toLowerCase()) {
+      const taken = await knex('users')
+        .whereRaw('LOWER(email) = ?', [newEmail])
+        .whereNot('id', targetId)
+        .first('id');
+      if (taken) throw new AppError('Email already registered to another account', 409, 'EMAIL_EXISTS');
+      patch.email = newEmail;
+      patch.email_verified = false;
+      changes.email = { from: target.email, to: newEmail, email_verified_reset: true };
+    }
+  }
+
+  // is_active — superadmin cannot deactivate themselves; admin cannot touch superadmin
+  if (updates.is_active !== undefined && updates.is_active !== target.is_active) {
+    if (!updates.is_active && actor.id === target.id) {
+      throw new AppError('You cannot deactivate your own account.', 403, 'FORBIDDEN');
+    }
+    patch.is_active = Boolean(updates.is_active);
+    changes.is_active = { from: target.is_active, to: patch.is_active };
+  }
+
+  // Role — superadmin only, with further safety rails.
+  if (updates.role !== undefined && updates.role !== target.role) {
+    if (actor.role !== 'superadmin') {
+      throw new AppError('Only a superadmin can change roles.', 403, 'FORBIDDEN');
+    }
+    if (!VALID_ROLES.includes(updates.role)) {
+      throw new AppError('Invalid role.', 400, 'VALIDATION_ERROR');
+    }
+    if (actor.id === target.id) {
+      throw new AppError('You cannot change your own role.', 403, 'FORBIDDEN');
+    }
+    patch.role = updates.role;
+    changes.role = { from: target.role, to: updates.role };
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new AppError('No changes to apply.', 400, 'NO_CHANGES');
+  }
+
+  patch.updated_at = new Date();
+
+  const mustRevokeSessions = changes.role || (changes.is_active && changes.is_active.to === false);
+
+  await knex.transaction(async (trx) => {
+    await trx('users').where({ id: targetId }).update(patch);
+
+    if (mustRevokeSessions) {
+      await trx('refresh_tokens').where({ user_id: targetId }).del();
+    }
+
+    await trx('audit_log').insert({
+      actor_id: actor.id,
+      action: changes.role ? 'user.role_change' :
+              changes.is_active ? `user.${changes.is_active.to ? 'reactivate' : 'deactivate'}` :
+              'user.update',
+      target_type: 'user',
+      target_id: targetId,
+      metadata: JSON.stringify({
+        changes,
+        sessions_revoked: Boolean(mustRevokeSessions),
+      }),
+      ip_address: ip || null,
+    });
+  });
+
+  return getUserDetail(targetId);
+}
+
+/**
+ * Kick off the standard forgot-password email flow on behalf of a user.
+ * The reset token is stored in Redis the same way the public flow does it,
+ * so reuse of resetPassword on /auth/reset-password is seamless.
+ */
+async function resetUserPassword({ actor, targetId, ip }) {
+  const target = await knex('users').where({ id: targetId }).first();
+  if (!target) throw new AppError('User not found', 404, 'NOT_FOUND');
+  assertActorCanTouchTarget(actor, target);
+
+  const token = crypto.randomBytes(32).toString('hex');
+  await redis.setex(`reset:${token}`, RESET_TOKEN_EXPIRY, target.id);
+
+  emailService
+    .sendPasswordReset(target.email, token, target.name)
+    .catch((err) => console.error('[EMAIL] Admin-triggered reset send failed:', err.message));
+
+  if (config.env !== 'production') {
+    console.log(`[DEV] Admin reset token for ${target.email}: ${token}`);
+  }
+
+  await knex('audit_log').insert({
+    actor_id: actor.id,
+    action: 'user.password_reset_email',
+    target_type: 'user',
+    target_id: target.id,
+    metadata: JSON.stringify({ email: target.email }),
+    ip_address: ip || null,
+  });
+
+  return { message: 'Password reset email queued.' };
+}
+
+/**
+ * Hard-set a new password without the reset-email detour. Use this only
+ * when the user has lost control of their email too. All sessions are
+ * revoked so nobody keeps an old token.
+ */
+async function setUserPassword({ actor, targetId, newPassword, ip }) {
+  const target = await knex('users').where({ id: targetId }).first();
+  if (!target) throw new AppError('User not found', 404, 'NOT_FOUND');
+  assertActorCanTouchTarget(actor, target);
+
+  const hash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+
+  await knex.transaction(async (trx) => {
+    await trx('users').where({ id: targetId }).update({
+      password_hash: hash,
+      updated_at: new Date(),
+      failed_login_count: 0,
+      locked_until: null,
+    });
+    await trx('refresh_tokens').where({ user_id: targetId }).del();
+    await trx('audit_log').insert({
+      actor_id: actor.id,
+      action: 'user.password_set',
+      target_type: 'user',
+      target_id: target.id,
+      metadata: JSON.stringify({ via: 'admin_panel' }),
+      ip_address: ip || null,
+    });
+  });
+
+  return { message: 'Password set. All sessions revoked.' };
+}
+
+async function forceLogoutUser({ actor, targetId, ip }) {
+  const target = await knex('users').where({ id: targetId }).first();
+  if (!target) throw new AppError('User not found', 404, 'NOT_FOUND');
+  assertActorCanTouchTarget(actor, target);
+
+  const deleted = await knex('refresh_tokens').where({ user_id: targetId }).del();
+
+  await knex('audit_log').insert({
+    actor_id: actor.id,
+    action: 'user.force_logout',
+    target_type: 'user',
+    target_id: target.id,
+    metadata: JSON.stringify({ sessions_revoked: deleted }),
+    ip_address: ip || null,
+  });
+
+  return { sessions_revoked: deleted };
+}
+
 module.exports = {
   getUserStats,
   getJobStats,
@@ -205,4 +547,12 @@ module.exports = {
   getPlatformStats,
   broadcastNotification,
   BROADCAST_MAX_RECIPIENTS,
+  listUsers,
+  getUserDetail,
+  updateUser,
+  resetUserPassword,
+  setUserPassword,
+  forceLogoutUser,
+  VALID_ROLES,
+  ROLE_RANK,
 };

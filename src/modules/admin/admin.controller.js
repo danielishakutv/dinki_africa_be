@@ -46,3 +46,78 @@ exports.broadcastNotification = async (req, res, next) => {
     next(err);
   }
 };
+
+/* ---------------- User management ---------------- */
+
+exports.listUsers = async (req, res, next) => {
+  try {
+    const { q, role, status, page, limit } = req.query;
+    const result = await service.listUsers({ q, role, status, page, limit });
+    res.json({ success: true, data: result.users, meta: result.pagination });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getUser = async (req, res, next) => {
+  try {
+    const user = await service.getUserDetail(req.params.id);
+    res.json({ success: true, data: user });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateUser = async (req, res, next) => {
+  try {
+    const user = await service.updateUser({
+      actor: req.user,
+      targetId: req.params.id,
+      updates: req.body,
+      ip: req.ip,
+    });
+    res.json({ success: true, data: user });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.resetUserPassword = async (req, res, next) => {
+  try {
+    const result = await service.resetUserPassword({
+      actor: req.user,
+      targetId: req.params.id,
+      ip: req.ip,
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.setUserPassword = async (req, res, next) => {
+  try {
+    const result = await service.setUserPassword({
+      actor: req.user,
+      targetId: req.params.id,
+      newPassword: req.body.newPassword,
+      ip: req.ip,
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.forceLogoutUser = async (req, res, next) => {
+  try {
+    const result = await service.forceLogoutUser({
+      actor: req.user,
+      targetId: req.params.id,
+      ip: req.ip,
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+};

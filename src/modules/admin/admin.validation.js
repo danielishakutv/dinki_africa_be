@@ -1,4 +1,4 @@
-const { body } = require('express-validator');
+const { body, param, query } = require('express-validator');
 
 /**
  * POST /v1/admin/notifications/broadcast
@@ -35,4 +35,48 @@ const broadcastSchema = [
     .isLength({ max: 500 }).withMessage('link must be ≤ 500 characters'),
 ];
 
-module.exports = { broadcastSchema };
+/* ---------------- User management ---------------- */
+
+const listUsersSchema = [
+  query('q').optional().isString().isLength({ max: 100 }),
+  query('role').optional().isIn(['all', 'customer', 'tailor', 'admin', 'superadmin'])
+    .withMessage('role must be all|customer|tailor|admin|superadmin'),
+  query('status').optional().isIn(['all', 'active', 'inactive'])
+    .withMessage('status must be all|active|inactive'),
+  query('page').optional().isInt({ min: 1 }),
+  query('limit').optional().isInt({ min: 1, max: 100 }),
+];
+
+const userIdParam = [
+  param('id').isUUID().withMessage('Invalid user id'),
+];
+
+const updateUserSchema = [
+  param('id').isUUID().withMessage('Invalid user id'),
+  body('name').optional().trim().isLength({ min: 2, max: 100 }),
+  body('phone').optional({ checkFalsy: true }).isString().isLength({ max: 20 }),
+  body('username').optional({ checkFalsy: true })
+    .trim()
+    .matches(/^[a-z0-9_.]{3,30}$/i)
+    .withMessage('Username must be 3-30 chars (letters, numbers, _ or .)'),
+  body('email').optional().isEmail().withMessage('Valid email is required').normalizeEmail(),
+  body('is_active').optional().isBoolean(),
+  body('role').optional().isIn(['customer', 'tailor', 'admin', 'superadmin'])
+    .withMessage('role must be customer|tailor|admin|superadmin'),
+];
+
+const setPasswordSchema = [
+  param('id').isUUID().withMessage('Invalid user id'),
+  body('newPassword')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+    .matches(/[A-Z]/).withMessage('Password must contain an uppercase letter')
+    .matches(/[0-9]/).withMessage('Password must contain a number'),
+];
+
+module.exports = {
+  broadcastSchema,
+  listUsersSchema,
+  userIdParam,
+  updateUserSchema,
+  setPasswordSchema,
+};

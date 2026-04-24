@@ -4,7 +4,13 @@ const auth = require('../../middleware/auth');
 const authorize = require('../../middleware/authorize');
 const { validate } = require('../../middleware/validate');
 const ctrl = require('./admin.controller');
-const { broadcastSchema } = require('./admin.validation');
+const {
+  broadcastSchema,
+  listUsersSchema,
+  userIdParam,
+  updateUserSchema,
+  setPasswordSchema,
+} = require('./admin.validation');
 
 // Every route below REQUIRES a valid JWT AND an admin/superadmin role.
 // Order matters: `auth` populates req.user; `authorize` then checks the role.
@@ -39,5 +45,28 @@ router.post(
   validate(broadcastSchema),
   ctrl.broadcastNotification,
 );
+
+// ---- User management ----
+// Per-admin rate limit on destructive user ops. List + get are unthrottled.
+const sensitiveUserOpLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.id || req.ip,
+  handler: (req, res) => {
+    res.status(429).json({
+      success: false,
+      error: { code: 'RATE_LIMITED', message: 'Too many sensitive user operations. Try again shortly.' },
+    });
+  },
+});
+
+router.get('/users', validate(listUsersSchema), ctrl.listUsers);
+router.get('/users/:id', validate(userIdParam), ctrl.getUser);
+router.patch('/users/:id', sensitiveUserOpLimiter, validate(updateUserSchema), ctrl.updateUser);
+router.post('/users/:id/reset-password', sensitiveUserOpLimiter, validate(userIdParam), ctrl.resetUserPassword);
+router.post('/users/:id/set-password', sensitiveUserOpLimiter, validate(setPasswordSchema), ctrl.setUserPassword);
+router.post('/users/:id/force-logout', sensitiveUserOpLimiter, validate(userIdParam), ctrl.forceLogoutUser);
 
 module.exports = router;
