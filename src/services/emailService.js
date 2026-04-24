@@ -91,6 +91,21 @@ async function sendNotification(email, { title, message, actionUrl, actionText }
 }
 
 /**
+ * Send a system/broadcast notification email using the minimalist gold
+ * template. Used by the admin broadcast path to mirror the in-app
+ * notification into the user's inbox when the admin opts in.
+ */
+async function sendSystemNotification(email, { name, title, message, link }) {
+  const plainText = [title, message, link].filter(Boolean).join('\n\n');
+  return sendEmail({
+    to: email,
+    subject: title,
+    html: emailTemplates.systemNotification({ name, title, message, link }),
+    text: plainText,
+  });
+}
+
+/**
  * Verify Postfix connection on startup
  */
 async function verifyConnection() {
@@ -111,5 +126,6 @@ module.exports = {
   sendPasswordReset,
   sendWelcome,
   sendNotification,
+  sendSystemNotification,
   verifyConnection,
 };

@@ -31,13 +31,14 @@ exports.stats = async (req, res, next) => {
 
 exports.broadcastNotification = async (req, res, next) => {
   try {
-    const { target, title, message, link } = req.body;
+    const { target, title, message, link, email } = req.body;
     const result = await service.broadcastNotification({
       actorId: req.user.id,
       target,
       title,
       message,
       link,
+      email: Boolean(email),
       ip: req.ip,
       io: req.app.get('io'),
     });

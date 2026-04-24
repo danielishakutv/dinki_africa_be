@@ -3,10 +3,16 @@
  * Drop this into: backend/src/services/emailTemplates.js
  */
 
-const BRAND_COLOR = '#1E3A5F';    // Dinki dark blue
-const ACCENT_COLOR = '#F59E0B';   // Dinki amber/gold
+const BRAND_COLOR = '#1E3A5F';    // Dinki dark blue (header bar on legacy templates)
+const ACCENT_COLOR = '#F59E0B';   // Dinki amber/gold (legacy accent)
 const BG_COLOR = '#F3F4F6';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://dinki.africa';
+
+// Minimalist template palette — matches the web app's gold accent exactly.
+const GOLD = '#D4AF37';
+const INK = '#111827';
+const MUTED = '#6B7280';
+const DIVIDER = '#EAECEF';
 
 /**
  * Base wrapper — every email uses this shell
@@ -63,6 +69,65 @@ function button(text, url) {
   <tr>
     <td align="center">
       <a href="${url}" style="display:inline-block;padding:14px 32px;background:${BRAND_COLOR};color:#ffffff;text-decoration:none;border-radius:8px;font-size:16px;font-weight:600;">${text}</a>
+    </td>
+  </tr>
+</table>`;
+}
+
+/**
+ * Minimalist shell — a single white card on cloud-grey, no coloured header
+ * bar, a thin gold accent line, clean typography. Designed to match the
+ * aesthetic of the web app rather than the heavier transactional templates.
+ */
+function minimalLayout({ title, body }) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>${title}</title>
+</head>
+<body style="margin:0;padding:0;background:#F2F0EB;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;color:${INK};">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F2F0EB;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;background:#ffffff;border-radius:14px;overflow:hidden;">
+          <tr>
+            <td style="padding:32px 40px 8px;">
+              <table cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="font-size:11px;font-weight:700;letter-spacing:2px;color:${GOLD};text-transform:uppercase;">Dinki Africa</td>
+                </tr>
+              </table>
+              <div style="height:2px;width:32px;background:${GOLD};margin:10px 0 24px;"></div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 40px 36px;">
+              ${body}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 40px;border-top:1px solid ${DIVIDER};">
+              <p style="margin:0;color:${MUTED};font-size:12px;line-height:1.6;text-align:center;">
+                You received this because you have notifications enabled on Dinki Africa.<br>
+                <a href="${FRONTEND_URL}" style="color:${GOLD};text-decoration:none;font-weight:600;">dinki.africa</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+function goldButton(text, url) {
+  return `<table cellpadding="0" cellspacing="0" style="margin:24px 0 4px;">
+  <tr>
+    <td>
+      <a href="${url}" style="display:inline-block;padding:12px 26px;background:${GOLD};color:#ffffff;text-decoration:none;border-radius:10px;font-size:14px;font-weight:600;letter-spacing:0.2px;">${text}</a>
     </td>
   </tr>
 </table>`;
@@ -156,6 +221,24 @@ const emailTemplates = {
   },
 
   /**
+   * System notification email — minimalist, gold-accented, matches web app.
+   * Used for admin broadcasts and anywhere we want to mirror an in-app
+   * notification into the user's inbox.
+   */
+  systemNotification({ name, title, message, link }) {
+    const greeting = name
+      ? `<p style="margin:0 0 8px;color:${MUTED};font-size:14px;line-height:1.5;">Hi ${escapeHtml(name)},</p>`
+      : '';
+    const body = `
+      ${greeting}
+      <h1 style="margin:0 0 16px;color:${INK};font-size:22px;font-weight:700;line-height:1.35;letter-spacing:-0.2px;">${escapeHtml(title)}</h1>
+      ${message ? `<p style="margin:0;color:#374151;font-size:15px;line-height:1.7;white-space:pre-line;">${escapeHtml(message)}</p>` : ''}
+      ${link ? goldButton('Open in Dinki', link.startsWith('http') ? link : `${FRONTEND_URL}${link}`) : ''}
+    `;
+    return minimalLayout({ title, body });
+  },
+
+  /**
    * Generic notification email (order updates, new messages, etc.)
    */
   notification({ title, message, actionUrl, actionText }) {
@@ -171,5 +254,15 @@ const emailTemplates = {
     `);
   },
 };
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 module.exports = { emailTemplates };

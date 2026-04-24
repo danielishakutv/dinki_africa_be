@@ -33,6 +33,9 @@ const broadcastSchema = [
     .optional({ checkFalsy: true })
     .isString()
     .isLength({ max: 500 }).withMessage('link must be ≤ 500 characters'),
+  body('email')
+    .optional()
+    .isBoolean().withMessage('email must be a boolean'),
 ];
 
 /* ---------------- User management ---------------- */

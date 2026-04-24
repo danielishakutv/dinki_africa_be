@@ -152,27 +152,37 @@ function recipientFilter(target) {
  * the DB writes — the notifications are already durable and show up next
  * time the user opens the app.
  */
-async function broadcastNotification({ actorId, target, title, message, link, ip, io }) {
+async function broadcastNotification({ actorId, target, title, message, link, email, ip, io }) {
   const filter = recipientFilter(target);
 
-  const recipientIds = await filter.apply(knex('users')).pluck('id');
+  // Pull id + name + email so we can emit, insert, AND (optionally) mail in
+  // one round-trip instead of re-selecting. Email is required for the
+  // per-recipient fan-out; we gracefully skip users without one.
+  const recipients = await filter.apply(knex('users'))
+    .select('id', 'name', 'email', 'is_active');
 
-  if (recipientIds.length === 0) {
+  if (recipients.length === 0) {
     throw new AppError('No users match this target', 400, 'NO_RECIPIENTS');
   }
-  if (recipientIds.length > BROADCAST_MAX_RECIPIENTS) {
+  if (recipients.length > BROADCAST_MAX_RECIPIENTS) {
     throw new AppError(
-      `Broadcast would reach ${recipientIds.length} users — cap is ${BROADCAST_MAX_RECIPIENTS}. Narrow the target.`,
+      `Broadcast would reach ${recipients.length} users — cap is ${BROADCAST_MAX_RECIPIENTS}. Narrow the target.`,
       400,
       'BROADCAST_TOO_LARGE',
     );
   }
 
+  console.log(
+    `[BROADCAST] actor=${actorId} target=${filter.descriptor} ` +
+    `recipients=${recipients.length} email=${Boolean(email)} ` +
+    `sample_ids=${recipients.slice(0, 3).map((r) => r.id).join(',')}`
+  );
+
   const metadata = link ? { link } : {};
   const metadataStr = JSON.stringify(metadata);
 
-  const rows = recipientIds.map((userId) => ({
-    user_id: userId,
+  const rows = recipients.map((r) => ({
+    user_id: r.id,
     type: 'system',
     title,
     message: message || null,
@@ -183,6 +193,8 @@ async function broadcastNotification({ actorId, target, title, message, link, ip
     .insert(rows)
     .returning(['id', 'user_id', 'type', 'title', 'message', 'metadata', 'is_read', 'created_at']);
 
+  console.log(`[BROADCAST] inserted=${inserted.length} rows into notifications`);
+
   await knex('audit_log').insert({
     actor_id: actorId,
     action: 'notification.broadcast',
@@ -192,6 +204,7 @@ async function broadcastNotification({ actorId, target, title, message, link, ip
       title,
       recipient_count: inserted.length,
       has_message: Boolean(message),
+      emailed: Boolean(email),
     }),
     ip_address: ip || null,
   });
@@ -202,8 +215,36 @@ async function broadcastNotification({ actorId, target, title, message, link, ip
     }
   }
 
+  // Fire-and-forget email fan-out. We intentionally don't block the HTTP
+  // response on SMTP latency; Postfix can chew through these in the
+  // background. A per-recipient failure is logged but doesn't poison the
+  // broadcast — the in-app notification is already delivered.
+  let emailed = 0;
+  if (email) {
+    const mailable = recipients.filter((r) =>
+      r.email && !String(r.email).startsWith('deleted-') && r.is_active
+    );
+    emailed = mailable.length;
+    console.log(`[BROADCAST] queueing ${mailable.length} system-notification emails`);
+    Promise.allSettled(
+      mailable.map((r) =>
+        emailService.sendSystemNotification(r.email, {
+          name: r.name,
+          title,
+          message,
+          link,
+        })
+      )
+    ).then((results) => {
+      const failed = results.filter((x) => x.status === 'rejected').length;
+      if (failed) console.error(`[BROADCAST] email: ${failed}/${results.length} failed`);
+      else console.log(`[BROADCAST] email: all ${results.length} sent`);
+    });
+  }
+
   return {
     sent: inserted.length,
+    emailed,
     target: filter.descriptor,
   };
 }
