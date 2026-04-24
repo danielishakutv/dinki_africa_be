@@ -73,10 +73,20 @@ const setPasswordSchema = [
     .matches(/[0-9]/).withMessage('Password must contain a number'),
 ];
 
+const hardDeleteSchema = [
+  param('id').isUUID().withMessage('Invalid user id'),
+  body('confirmEmail')
+    .trim()
+    .notEmpty().withMessage('confirmEmail is required')
+    .isEmail().withMessage('confirmEmail must be a valid email')
+    .normalizeEmail(),
+];
+
 module.exports = {
   broadcastSchema,
   listUsersSchema,
   userIdParam,
   updateUserSchema,
   setPasswordSchema,
+  hardDeleteSchema,
 };

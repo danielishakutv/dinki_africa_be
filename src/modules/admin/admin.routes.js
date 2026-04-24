@@ -10,6 +10,7 @@ const {
   userIdParam,
   updateUserSchema,
   setPasswordSchema,
+  hardDeleteSchema,
 } = require('./admin.validation');
 
 // Every route below REQUIRES a valid JWT AND an admin/superadmin role.
@@ -68,5 +69,7 @@ router.patch('/users/:id', sensitiveUserOpLimiter, validate(updateUserSchema), c
 router.post('/users/:id/reset-password', sensitiveUserOpLimiter, validate(userIdParam), ctrl.resetUserPassword);
 router.post('/users/:id/set-password', sensitiveUserOpLimiter, validate(setPasswordSchema), ctrl.setUserPassword);
 router.post('/users/:id/force-logout', sensitiveUserOpLimiter, validate(userIdParam), ctrl.forceLogoutUser);
+router.post('/users/:id/anonymize',    sensitiveUserOpLimiter, validate(userIdParam),     ctrl.anonymizeUser);
+router.post('/users/:id/hard-delete',  sensitiveUserOpLimiter, validate(hardDeleteSchema), ctrl.hardDeleteUser);
 
 module.exports = router;

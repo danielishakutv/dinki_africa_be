@@ -520,6 +520,161 @@ async function setUserPassword({ actor, targetId, newPassword, ip }) {
   return { message: 'Password set. All sessions revoked.' };
 }
 
+/**
+ * Anonymize a user — strip all personally-identifiable information from the
+ * users row (and linked customer records / tailor storefront), kill sessions,
+ * but preserve the row itself. This is the NDPR/GDPR "right to erasure"
+ * implementation: legally the user's personal data is no longer present,
+ * while counterparty records (other tailors' order history, other users'
+ * messages) stay intact with "Deleted User" attribution.
+ *
+ * Irreversible.
+ */
+async function anonymizeUser({ actor, targetId, ip }) {
+  const target = await knex('users').where({ id: targetId }).first();
+  if (!target) throw new AppError('User not found', 404, 'NOT_FOUND');
+
+  assertActorCanTouchTarget(actor, target);
+
+  if (actor.id === target.id) {
+    throw new AppError('You cannot anonymize your own account from the admin panel.', 403, 'FORBIDDEN');
+  }
+
+  if (target.account_status === 'anonymized') {
+    throw new AppError('User is already anonymized.', 400, 'ALREADY_ANONYMIZED');
+  }
+
+  const anonEmail = `deleted-${target.id}@dinki.africa`;
+  const anonName = 'Deleted User';
+  // Random bcrypt hash so any future login attempt fails at compare, even
+  // if is_active is somehow flipped back on. Defense-in-depth.
+  const randomPasswordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), SALT_ROUNDS);
+
+  await knex.transaction(async (trx) => {
+    // Audit log BEFORE mutation so the snapshot is captured
+    await trx('audit_log').insert({
+      actor_id: actor.id,
+      action: 'user.anonymize',
+      target_type: 'user',
+      target_id: target.id,
+      metadata: JSON.stringify({
+        previous_email: target.email,
+        previous_name: target.name,
+        previous_phone: target.phone,
+        previous_role: target.role,
+      }),
+      ip_address: ip || null,
+    });
+
+    await trx('users').where({ id: target.id }).update({
+      email: anonEmail,
+      name: anonName,
+      phone: null,
+      avatar_url: null,
+      initials: 'DU',
+      avatar_color: null,
+      bio: null,
+      location_city: null,
+      location_state: null,
+      latitude: null,
+      longitude: null,
+      specialties: null,
+      username: null,
+      password_hash: randomPasswordHash,
+      email_verified: false,
+      phone_verified: false,
+      is_active: false,
+      account_status: 'anonymized',
+      preferences: JSON.stringify({}),
+      updated_at: new Date(),
+    });
+
+    // Wipe PII on linked customer records (rows where this user appears AS a
+    // customer of some tailor). The customer row stays — the tailor's history
+    // is preserved — but the identifying fields are scrubbed.
+    await trx('customers').where({ user_id: target.id }).update({
+      name: anonName,
+      phone: null,
+      email: null,
+      location: null,
+    });
+
+    // Tailor storefront bio + image often contain personal details.
+    if (target.role === 'tailor') {
+      await trx('tailor_profiles').where({ user_id: target.id }).update({
+        storefront_bio: null,
+        storefront_image: null,
+      });
+    }
+
+    await trx('refresh_tokens').where({ user_id: target.id }).del();
+  });
+
+  return { anonymized: true };
+}
+
+/**
+ * Hard-delete a user. Superadmin-only, with a typed-email confirmation and
+ * a "last superadmin" guard. FK cascade policies from migration 022 handle
+ * the downstream cleanup — orders/reviews/conversations/messages belonging
+ * to the user are deleted; articles/fabrics/audit-log entries they authored
+ * are kept with their pointer nulled.
+ *
+ * This is the heaviest action in the admin panel. Use for test accounts and
+ * abuse cleanup, not for NDPR-style erasure (use anonymizeUser for that).
+ */
+async function hardDeleteUser({ actor, targetId, confirmEmail, ip }) {
+  if (actor.role !== 'superadmin') {
+    throw new AppError('Only a superadmin can hard-delete a user.', 403, 'FORBIDDEN');
+  }
+
+  const target = await knex('users').where({ id: targetId }).first();
+  if (!target) throw new AppError('User not found', 404, 'NOT_FOUND');
+
+  if (actor.id === target.id) {
+    throw new AppError('You cannot delete your own account.', 403, 'FORBIDDEN');
+  }
+
+  if (target.role === 'superadmin') {
+    const row = await knex('users').where({ role: 'superadmin' }).count('id as c').first();
+    if (parseInt(row?.c || 0, 10) <= 1) {
+      throw new AppError('Cannot delete the last remaining superadmin.', 403, 'LAST_SUPERADMIN');
+    }
+  }
+
+  // Typed-email confirmation. Forces the caller to physically look at who
+  // they are deleting instead of firing the endpoint from muscle memory.
+  const expected = (target.email || '').trim().toLowerCase();
+  const got = (confirmEmail || '').trim().toLowerCase();
+  if (!expected || got !== expected) {
+    throw new AppError("Confirmation email doesn't match the user's current email.", 400, 'CONFIRM_MISMATCH');
+  }
+
+  await knex.transaction(async (trx) => {
+    // Capture the snapshot BEFORE the delete — target_id is intentionally
+    // left null because the user row is about to disappear and the FK would
+    // otherwise blow up this very insert on commit.
+    await trx('audit_log').insert({
+      actor_id: actor.id,
+      action: 'user.hard_delete',
+      target_type: 'user',
+      target_id: null,
+      metadata: JSON.stringify({
+        user_id: target.id,
+        email: target.email,
+        name: target.name,
+        role: target.role,
+        created_at: target.created_at,
+      }),
+      ip_address: ip || null,
+    });
+
+    await trx('users').where({ id: target.id }).del();
+  });
+
+  return { deleted: true };
+}
+
 async function forceLogoutUser({ actor, targetId, ip }) {
   const target = await knex('users').where({ id: targetId }).first();
   if (!target) throw new AppError('User not found', 404, 'NOT_FOUND');
@@ -553,6 +708,8 @@ module.exports = {
   resetUserPassword,
   setUserPassword,
   forceLogoutUser,
+  anonymizeUser,
+  hardDeleteUser,
   VALID_ROLES,
   ROLE_RANK,
 };

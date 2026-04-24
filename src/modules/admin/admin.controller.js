@@ -121,3 +121,30 @@ exports.forceLogoutUser = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.anonymizeUser = async (req, res, next) => {
+  try {
+    const result = await service.anonymizeUser({
+      actor: req.user,
+      targetId: req.params.id,
+      ip: req.ip,
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.hardDeleteUser = async (req, res, next) => {
+  try {
+    const result = await service.hardDeleteUser({
+      actor: req.user,
+      targetId: req.params.id,
+      confirmEmail: req.body.confirmEmail,
+      ip: req.ip,
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+};
