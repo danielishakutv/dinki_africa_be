@@ -21,18 +21,21 @@ const FROM_ADDRESS = process.env.EMAIL_FROM || '"Dinki Africa" <no-reply@dinki.a
 const SUPPORT_ADDRESS = process.env.EMAIL_SUPPORT || 'support@dinki.africa';
 
 /**
- * Send a raw email
+ * Send a raw email. `cc` and `replyTo` are opt-in; omitting them keeps
+ * existing transactional sends (OTP, welcome, reset) unchanged.
  */
-async function sendEmail({ to, subject, html, text, from }) {
+async function sendEmail({ to, cc, subject, html, text, from, replyTo }) {
   try {
     const info = await transporter.sendMail({
       from: from || FROM_ADDRESS,
       to,
+      ...(cc ? { cc } : {}),
+      ...(replyTo ? { replyTo } : {}),
       subject,
       html,
       text: text || subject, // plain-text fallback
     });
-    console.log(`[EMAIL] Sent to ${to} — messageId: ${info.messageId}`);
+    console.log(`[EMAIL] Sent to ${to}${cc ? ` (cc ${cc})` : ''} — messageId: ${info.messageId}`);
     return info;
   } catch (err) {
     console.error(`[EMAIL] Failed to send to ${to}:`, err.message);
@@ -91,6 +94,33 @@ async function sendNotification(email, { title, message, actionUrl, actionText }
 }
 
 /**
+ * Send a support ticket email to the ops inbox with CC. Reply-To is set
+ * to the ticket submitter's contact email so the recipient can reply
+ * directly and the thread lands in the user's mailbox, not ours.
+ */
+async function sendSupportTicket({ to, cc, ticketRef, name, email, category, subject, message, submitter }) {
+  const plainText = [
+    `Support Ticket #${ticketRef}`,
+    `Category: ${category}`,
+    `Subject: ${subject}`,
+    '',
+    `From: ${name} <${email}>`,
+    submitter ? `Submitted by: ${submitter.name} <${submitter.email}> (${submitter.role})` : '',
+    '',
+    message,
+  ].filter(Boolean).join('\n');
+
+  return sendEmail({
+    to,
+    cc,
+    subject: `[Dinki Support] #${ticketRef} — ${subject}`,
+    html: emailTemplates.supportTicket({ ticketRef, name, email, category, subject, message, submitter }),
+    text: plainText,
+    replyTo: email,
+  });
+}
+
+/**
  * Send a system/broadcast notification email using the minimalist gold
  * template. Used by the admin broadcast path to mirror the in-app
  * notification into the user's inbox when the admin opts in.
@@ -127,5 +157,6 @@ module.exports = {
   sendWelcome,
   sendNotification,
   sendSystemNotification,
+  sendSupportTicket,
   verifyConnection,
 };

@@ -221,6 +221,62 @@ const emailTemplates = {
   },
 
   /**
+   * Support ticket email — dispatched to ops when a user files a ticket.
+   * Minimalist gold theme, ticket ref up top, message body rendered
+   * with white-space preserved, Reply button wired to mailto: so ops
+   * can respond without leaving their inbox.
+   */
+  supportTicket({ ticketRef, name, email, category, subject, message, submitter }) {
+    const submitterLine = submitter && submitter.email && submitter.email !== email
+      ? `<p style="margin:6px 0 0;color:${MUTED};font-size:12px;">
+           Logged in as <strong style="color:${INK};">${escapeHtml(submitter.name || '—')}</strong>
+           &lt;${escapeHtml(submitter.email)}&gt; · ${escapeHtml(submitter.role || 'user')}
+         </p>`
+      : submitter?.role
+        ? `<p style="margin:6px 0 0;color:${MUTED};font-size:12px;">Role: ${escapeHtml(submitter.role)}</p>`
+        : '';
+
+    const replyUrl = `mailto:${email}?subject=${encodeURIComponent(`Re: ${subject} (#${ticketRef})`)}`;
+    const firstName = (name || 'them').split(' ')[0];
+
+    const body = `
+      <p style="margin:0 0 4px;color:${GOLD};font-size:11px;letter-spacing:2px;font-weight:700;text-transform:uppercase;">
+        Ticket #${escapeHtml(ticketRef)}
+      </p>
+      <h1 style="margin:0 0 8px;color:${INK};font-size:22px;font-weight:700;line-height:1.35;letter-spacing:-0.2px;">
+        ${escapeHtml(subject)}
+      </h1>
+      <p style="margin:0 0 24px;color:${MUTED};font-size:13px;">
+        Category: <strong style="color:${INK};">${escapeHtml(category)}</strong>
+      </p>
+
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;border:1px solid ${DIVIDER};border-radius:10px;">
+        <tr>
+          <td style="padding:14px 18px;">
+            <p style="margin:0 0 2px;color:${MUTED};font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700;">From</p>
+            <p style="margin:0;color:${INK};font-size:15px;font-weight:600;">${escapeHtml(name)}</p>
+            <p style="margin:2px 0 0;font-size:13px;">
+              <a href="mailto:${escapeHtml(email)}" style="color:${GOLD};text-decoration:none;font-weight:500;">${escapeHtml(email)}</a>
+            </p>
+            ${submitterLine}
+          </td>
+        </tr>
+      </table>
+
+      <p style="margin:0 0 8px;color:${MUTED};font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700;">Message</p>
+      <div style="padding:16px 18px;background:#FAFAF7;border-radius:10px;color:#374151;font-size:14px;line-height:1.7;white-space:pre-line;">${escapeHtml(message)}</div>
+
+      ${goldButton(`Reply to ${firstName}`, replyUrl)}
+
+      <p style="margin:20px 0 0;color:${MUTED};font-size:11px;line-height:1.5;">
+        Hit reply on this email to respond directly — it goes to the user.
+        Keep the ticket ref <strong>#${escapeHtml(ticketRef)}</strong> in the subject line to keep threads tidy.
+      </p>
+    `;
+    return minimalLayout({ title: `Support #${ticketRef}: ${subject}`, body });
+  },
+
+  /**
    * System notification email — minimalist, gold-accented, matches web app.
    * Used for admin broadcasts and anywhere we want to mirror an in-app
    * notification into the user's inbox.
