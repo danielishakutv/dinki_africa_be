@@ -36,7 +36,7 @@ const CHANGES = [
   { table: 'referrals',          column: 'referrer_id',    onDelete: 'CASCADE' },
 
   // SET NULL — content should survive the user
-  { table: 'marketplace_fabrics', column: 'seller_id',     onDelete: 'SET NULL' },
+  { table: 'fabrics',             column: 'seller_id',     onDelete: 'SET NULL' },
   { table: 'articles',            column: 'author_id',     onDelete: 'SET NULL' },
   { table: 'referrals',           column: 'referee_id',    onDelete: 'SET NULL' },
   { table: 'audit_log',           column: 'actor_id',      onDelete: 'SET NULL' },
