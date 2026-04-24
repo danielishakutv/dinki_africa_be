@@ -7,6 +7,7 @@ const config = require('../../config');
 const AppError = require('../../utils/AppError');
 const { nanoid } = require('nanoid');
 const emailService = require('../../services/emailService');
+const { createNotification } = require('../notifications/notifications.service');
 
 const SALT_ROUNDS = 12;
 const OTP_EXPIRY = 5 * 60; // 5 minutes in seconds
@@ -49,7 +50,40 @@ function getInitials(name) {
     .slice(0, 2);
 }
 
-async function signup({ email, password, name, role }) {
+/**
+ * Apply a referral code to a freshly-created user.
+ *
+ * Silent no-op if the code doesn't resolve or points at the referee
+ * themselves — we never throw, never surface "invalid code" errors to the
+ * caller. That keeps the signup flow simple AND prevents referral-code
+ * enumeration through the signup endpoint.
+ */
+async function applyReferral({ newUserId, newUserEmail, code }) {
+  const referrer = await db('users')
+    .where({ referral_code: code, is_active: true })
+    .first('id', 'name');
+
+  if (!referrer) return null;          // unknown code — silently skip
+  if (referrer.id === newUserId) return null; // defensive, shouldn't happen
+
+  await db.transaction(async (trx) => {
+    await trx('users')
+      .where({ id: newUserId })
+      .update({ referred_by: referrer.id });
+
+    await trx('referrals').insert({
+      referrer_id: referrer.id,
+      referee_id: newUserId,
+      referee_email: newUserEmail,
+      status: 'invited',
+    });
+  });
+
+  console.log(`[REFERRAL] linked ${newUserEmail} (${newUserId}) to referrer ${referrer.id}`);
+  return referrer;
+}
+
+async function signup({ email, password, name, role, referralCode }) {
   // Check if email exists
   const existing = await db('users').where({ email }).first();
 
@@ -70,7 +104,7 @@ async function signup({ email, password, name, role }) {
   // For now, only email matching in signup
 
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-  const referralCode = nanoid(8);
+  const ownReferralCode = nanoid(8);
   const initials = getInitials(name);
 
   const [user] = await db('users')
@@ -80,7 +114,7 @@ async function signup({ email, password, name, role }) {
       role,
       name,
       initials,
-      referral_code: referralCode,
+      referral_code: ownReferralCode,
       account_status: 'active',
     })
     .returning(['id', 'email', 'name', 'role']);
@@ -101,6 +135,14 @@ async function signup({ email, password, name, role }) {
   // Send OTP email (non-blocking so auth flow isn't affected)
   emailService.sendOTP(email, otp, name).catch(err => console.error('[EMAIL] OTP send failed:', err.message));
 
+  // Record the referral link (if a code was supplied). Always swallowed so a
+  // referral bookkeeping failure never blocks signup — the user account is
+  // already created and is the load-bearing part.
+  if (referralCode) {
+    applyReferral({ newUserId: user.id, newUserEmail: email, code: referralCode })
+      .catch((err) => console.error('[REFERRAL] signup apply failed:', err.message));
+  }
+
   if (config.env !== 'production') {
     console.log(`[DEV] OTP for ${email}: ${otp}`);
   }
@@ -108,7 +150,7 @@ async function signup({ email, password, name, role }) {
   return { message: 'Account created. Please verify your email.', userId: user.id };
 }
 
-async function verifyEmail({ email, otp }) {
+async function verifyEmail({ email, otp }, io) {
   const storedOTP = await redis.get(`otp:${email}`);
 
   if (!storedOTP || storedOTP !== otp) {
@@ -128,6 +170,30 @@ async function verifyEmail({ email, otp }) {
 
   await db('users').where({ id: user.id }).update(updates);
   await redis.del(`otp:${email}`);
+
+  // Referral join — flip the invited row to 'joined' and notify the
+  // referrer. Wrapped in a try so a referral bookkeeping failure can't
+  // block the verification response. Sender email is fire-and-forget.
+  try {
+    const joined = await db('referrals')
+      .where({ referee_id: user.id, status: 'invited' })
+      .update({ status: 'joined' })
+      .returning(['id', 'referrer_id']);
+
+    if (joined.length > 0) {
+      const referrerId = joined[0].referrer_id;
+      createNotification({
+        userId: referrerId,
+        type: 'system',
+        title: 'Someone joined using your invite',
+        message: `${user.name} just signed up on Dinki using your referral code.`,
+        metadata: { referee_id: user.id, referee_name: user.name, referee_role: user.role },
+      }, io).catch((err) => console.error('[REFERRAL] join notify failed:', err.message));
+      console.log(`[REFERRAL] joined referrer=${referrerId} referee=${user.id}`);
+    }
+  } catch (err) {
+    console.error('[REFERRAL] mark-joined failed:', err.message);
+  }
 
   // Send welcome email (non-blocking)
   emailService.sendWelcome(email, user.name, user.role).catch(err => console.error('[EMAIL] Welcome send failed:', err.message));

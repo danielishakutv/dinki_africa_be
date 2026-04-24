@@ -98,6 +98,7 @@ app.use('/v1/notifications', require('./modules/notifications/notifications.rout
 app.use('/v1/uploads', require('./modules/uploads/uploads.routes'));
 app.use('/v1/admin', require('./modules/admin/admin.routes'));
 app.use('/v1/support', require('./modules/support/support.routes'));
+app.use('/v1/referrals', require('./modules/referrals/referrals.routes'));
 
 // OG meta page for shared storefront links.
 // Crawlers (WhatsApp, iMessage, Facebook) GET /t/:slug here and receive tailor-specific

@@ -8,7 +8,8 @@ exports.signup = catchAsync(async (req, res) => {
 });
 
 exports.verifyEmail = catchAsync(async (req, res) => {
-  const result = await authService.verifyEmail(req.body);
+  const io = req.app.get('io');
+  const result = await authService.verifyEmail(req.body, io);
   setRefreshCookie(res, result.refreshToken);
   return success(res, {
     accessToken: result.accessToken,

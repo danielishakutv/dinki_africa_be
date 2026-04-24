@@ -14,6 +14,12 @@ const signupSchema = [
     .isLength({ min: 2, max: 100 }).withMessage('Name must be 2-100 characters'),
   body('role')
     .isIn(['customer', 'tailor']).withMessage('Role must be customer or tailor'),
+  // Optional. If supplied, must look like a referral_code. An unknown code
+  // is a silent no-op in the service — we don't leak which codes exist.
+  body('referralCode')
+    .optional({ checkFalsy: true })
+    .trim()
+    .matches(/^[A-Za-z0-9_-]{4,20}$/).withMessage('Invalid referral code'),
 ];
 
 const loginSchema = [
