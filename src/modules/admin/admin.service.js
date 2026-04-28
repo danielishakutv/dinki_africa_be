@@ -413,6 +413,23 @@ async function updateUser({ actor, targetId, updates, ip }) {
     patch.initials = patch.name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
   }
 
+  // Phone uniqueness — `updates.phone` is already canonical (validation layer
+  // ran phoneBody() and rewrote it). Block the update if any OTHER row owns
+  // this number, mirroring the username/email rules just below.
+  if (patch.phone) {
+    const taken = await knex('users')
+      .where('phone', patch.phone)
+      .whereNot('id', targetId)
+      .first('id');
+    if (taken) {
+      throw new AppError(
+        'This phone number is already in use by another account.',
+        409,
+        'PHONE_EXISTS',
+      );
+    }
+  }
+
   // Username — uniqueness check
   if (updates.username !== undefined && updates.username !== target.username) {
     const taken = await knex('users')

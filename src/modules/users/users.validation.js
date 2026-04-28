@@ -1,4 +1,5 @@
 const { body, query, param } = require('express-validator');
+const { phoneBody } = require('../../utils/phone');
 
 const usernameRegex = /^[a-zA-Z][a-zA-Z0-9._]{2,29}$/;
 const usernameMsg = 'Username must be 3-30 chars, start with a letter, and contain only letters, numbers, dots, or underscores';
@@ -6,7 +7,7 @@ const usernameMsg = 'Username must be 3-30 chars, start with a letter, and conta
 const updateProfileSchema = [
   body('name').optional().trim().isLength({ min: 2, max: 100 }).withMessage('Name must be 2-100 characters'),
   body('bio').optional().trim().isLength({ max: 500 }).withMessage('Bio max 500 characters'),
-  body('phone').optional().trim().isLength({ max: 20 }),
+  phoneBody('phone'),
   body('location_city').optional().trim().isLength({ max: 100 }),
   body('location_state').optional().trim().isLength({ max: 100 }),
   body('specialties').optional().isArray({ max: 10 }).withMessage('Max 10 specialties'),

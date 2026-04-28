@@ -1,8 +1,9 @@
 const { body, param, query } = require('express-validator');
+const { phoneBody } = require('../../utils/phone');
 
 const createCustomerSchema = [
   body('name').trim().isLength({ min: 1, max: 100 }).withMessage('Name is required (max 100 chars)'),
-  body('phone').optional().trim().isLength({ max: 20 }),
+  phoneBody('phone'),
   body('email').optional().trim().isEmail().withMessage('Invalid email'),
   body('location').optional().trim().isLength({ max: 200 }),
 ];
@@ -13,7 +14,7 @@ const linkCustomerSchema = [
 
 const updateCustomerSchema = [
   body('name').optional().trim().isLength({ min: 1, max: 100 }).withMessage('Name max 100 chars'),
-  body('phone').optional().trim().isLength({ max: 20 }),
+  phoneBody('phone'),
   body('email').optional().trim().isEmail().withMessage('Invalid email'),
   body('location').optional().trim().isLength({ max: 200 }),
 ];

@@ -44,6 +44,24 @@ async function updateProfile(userId, data) {
     updates.initials = updates.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
   }
 
+  // Phone uniqueness — `data.phone` is already normalized (validation layer
+  // ran phoneBody() and rewrote the value to canonical +234 form). Reject if
+  // any OTHER user already owns this number, so two humans can't end up
+  // sharing one identity. Null is fine — we allow many users without phones.
+  if (updates.phone) {
+    const taken = await db('users')
+      .where('phone', updates.phone)
+      .whereNot('id', userId)
+      .first('id');
+    if (taken) {
+      throw new AppError(
+        'This phone number is already in use by another account.',
+        409,
+        'PHONE_EXISTS',
+      );
+    }
+  }
+
   updates.updated_at = new Date();
 
   const [user] = await db('users').where({ id: userId }).update(updates)

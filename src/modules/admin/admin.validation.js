@@ -1,4 +1,5 @@
 const { body, param, query } = require('express-validator');
+const { phoneBody } = require('../../utils/phone');
 
 /**
  * POST /v1/admin/notifications/broadcast
@@ -57,7 +58,7 @@ const userIdParam = [
 const updateUserSchema = [
   param('id').isUUID().withMessage('Invalid user id'),
   body('name').optional().trim().isLength({ min: 2, max: 100 }),
-  body('phone').optional({ checkFalsy: true }).isString().isLength({ max: 20 }),
+  phoneBody('phone'),
   body('username').optional({ checkFalsy: true })
     .trim()
     .matches(/^[a-z0-9_.]{3,30}$/i)
