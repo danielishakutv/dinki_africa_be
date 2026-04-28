@@ -114,13 +114,15 @@ async function getOverview({ days = RANGE_DAYS_DEFAULT } = {}) {
     [range, range, range, range]
   );
 
-  // Activation rate — measurements added.
-  //   Customer activated  = a tailor has captured measurements for them
-  //                         (user.id appears as measurement_history.user_id).
-  //   Tailor activated    = they have captured measurements for at least one
-  //                         customer (user.id appears as measurement_history.tailor_id).
-  // Measurements being recorded marks a real tailor-customer relationship in
-  // the app — the foundational moment everything else (orders, jobs) follows.
+  // Activation rate — split definition by role.
+  //   Customer activated = placed at least one order. Customers don't
+  //                        capture measurements themselves (a tailor does
+  //                        it for them), so first-order is the cleanest
+  //                        self-driven signal of real intent.
+  //   Tailor activated   = recorded measurements for at least one customer
+  //                        (user.id appears as measurement_history.tailor_id).
+  //                        First measurement is the moment a tailor enters
+  //                        a real tailor-customer relationship in the app.
   const activationQ = knex.raw(
     `
     SELECT
@@ -131,10 +133,10 @@ async function getOverview({ days = RANGE_DAYS_DEFAULT } = {}) {
       (
         SELECT COUNT(DISTINCT u.id)::int
         FROM users u
-        JOIN measurement_history mh ON mh.user_id = u.id
+        JOIN orders o ON o.customer_id = u.id
         WHERE u.role = 'customer'
           AND u.created_at >= NOW() - (?::int || ' days')::interval
-      ) AS customers_with_measurements,
+      ) AS customers_with_first_order,
       (
         SELECT COUNT(*)::int FROM users
         WHERE role = 'tailor' AND created_at >= NOW() - (?::int || ' days')::interval
@@ -162,7 +164,7 @@ async function getOverview({ days = RANGE_DAYS_DEFAULT } = {}) {
 
   const stickiness = a.mau > 0 ? +(a.dau / a.mau).toFixed(3) : 0;
   const customerActivationPct = ac.customer_signups > 0
-    ? +(ac.customers_with_measurements / ac.customer_signups * 100).toFixed(1)
+    ? +(ac.customers_with_first_order / ac.customer_signups * 100).toFixed(1)
     : 0;
   const tailorActivationPct = ac.tailor_signups > 0
     ? +(ac.tailors_recorded_measurements / ac.tailor_signups * 100).toFixed(1)
@@ -195,7 +197,7 @@ async function getOverview({ days = RANGE_DAYS_DEFAULT } = {}) {
     },
     activation: {
       customer_signups: ac.customer_signups,
-      customers_activated: ac.customers_with_measurements,
+      customers_activated: ac.customers_with_first_order,
       customer_rate_pct: customerActivationPct,
       tailor_signups: ac.tailor_signups,
       tailors_activated: ac.tailors_recorded_measurements,
