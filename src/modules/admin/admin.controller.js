@@ -7,6 +7,7 @@
  */
 
 const service = require('./admin.service');
+const analytics = require('./analytics.service');
 
 exports.ping = (req, res) => {
   res.json({
@@ -148,4 +149,48 @@ exports.hardDeleteUser = async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+};
+
+/* ---------------- Analytics ---------------- */
+
+exports.analyticsOverview = async (req, res, next) => {
+  try {
+    const data = await analytics.getOverview({ days: req.query.days });
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
+exports.analyticsTimeseries = async (req, res, next) => {
+  try {
+    const data = await analytics.getTimeseries({ days: req.query.days });
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
+exports.analyticsCohorts = async (req, res, next) => {
+  try {
+    const data = await analytics.getCohorts({ weeks: req.query.weeks });
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
+exports.analyticsFunnels = async (req, res, next) => {
+  try {
+    const data = await analytics.getFunnels({ days: req.query.days });
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
+exports.analyticsMarketplace = async (req, res, next) => {
+  try {
+    const data = await analytics.getMarketplaceTop({ limit: req.query.limit });
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+};
+
+exports.analyticsReferrals = async (req, res, next) => {
+  try {
+    const data = await analytics.getReferrals({ limit: req.query.limit });
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
 };

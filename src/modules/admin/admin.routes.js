@@ -40,6 +40,14 @@ const broadcastLimiter = rateLimit({
 router.get('/ping', ctrl.ping);
 router.get('/stats', ctrl.stats);
 
+// ---- Analytics (read-only, gated by admin auth above) ----
+router.get('/analytics/overview',    ctrl.analyticsOverview);
+router.get('/analytics/timeseries',  ctrl.analyticsTimeseries);
+router.get('/analytics/cohorts',     ctrl.analyticsCohorts);
+router.get('/analytics/funnels',     ctrl.analyticsFunnels);
+router.get('/analytics/marketplace', ctrl.analyticsMarketplace);
+router.get('/analytics/referrals',   ctrl.analyticsReferrals);
+
 router.post(
   '/notifications/broadcast',
   broadcastLimiter,
