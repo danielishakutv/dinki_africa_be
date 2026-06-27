@@ -201,6 +201,15 @@ async function verifyEmail({ email, otp }, io) {
   const accessToken = generateAccessToken(user);
   const refreshToken = await generateRefreshToken(user.id);
 
+  // Mirror the login response shape so the SPA can route correctly straight
+  // after verification (onboarding gate reads onboarding_completed; tailor nav
+  // reads storefront_slug). Omitting onboarding_completed left it undefined and
+  // the post-verify routing fragile.
+  let tailorProfile = null;
+  if (user.role === 'tailor') {
+    tailorProfile = await db('tailor_profiles').where({ user_id: user.id }).first();
+  }
+
   return {
     accessToken,
     refreshToken,
@@ -209,6 +218,11 @@ async function verifyEmail({ email, otp }, io) {
       name: user.name,
       email: user.email,
       role: user.role,
+      avatar_url: user.avatar_url,
+      initials: user.initials,
+      avatar_color: user.avatar_color,
+      onboarding_completed: user.onboarding_completed,
+      storefront_slug: tailorProfile?.storefront_slug || null,
     },
   };
 }

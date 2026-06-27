@@ -36,7 +36,9 @@ exports.refresh = catchAsync(async (req, res) => {
 exports.logout = catchAsync(async (req, res) => {
   const rawToken = req.cookies.refreshToken;
   await authService.logout(rawToken);
-  res.clearCookie('refreshToken');
+  // Path MUST match the one used when setting the cookie, or the browser keeps
+  // the stale refresh token and a "logged out" device can silently re-auth.
+  res.clearCookie('refreshToken', { path: '/v1/auth' });
   return success(res, { message: 'Logged out' });
 });
 
@@ -52,7 +54,7 @@ exports.resetPassword = catchAsync(async (req, res) => {
 
 exports.changePassword = catchAsync(async (req, res) => {
   const result = await authService.changePassword(req.user.id, req.body);
-  res.clearCookie('refreshToken');
+  res.clearCookie('refreshToken', { path: '/v1/auth' });
   return success(res, result);
 });
 

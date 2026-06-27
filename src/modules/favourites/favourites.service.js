@@ -11,12 +11,12 @@ async function toggleFavourite(userId, { item_type, item_id }) {
     // Remove favourite
     await db('favourites').where({ id: existing.id }).del();
 
-    // Decrement favourite_count if it's a style
+    // "Save" a style is a favourite — keep the style's save_count in sync.
     if (item_type === 'style') {
-      await db('marketplace_styles')
+      await db('styles')
         .where({ id: item_id })
-        .whereRaw('favourite_count > 0')
-        .decrement('favourite_count', 1);
+        .whereRaw('save_count > 0')
+        .decrement('save_count', 1);
     }
 
     return { favourited: false };
@@ -27,11 +27,10 @@ async function toggleFavourite(userId, { item_type, item_id }) {
     .insert({ user_id: userId, item_type, item_id })
     .returning('*');
 
-  // Increment favourite_count if it's a style
   if (item_type === 'style') {
-    await db('marketplace_styles')
+    await db('styles')
       .where({ id: item_id })
-      .increment('favourite_count', 1);
+      .increment('save_count', 1);
   }
 
   return { favourited: true, id: fav.id };
@@ -61,9 +60,13 @@ async function listFavourites(userId, { type, page = 1, limit = 20 }) {
           .select('id', 'name', 'initials', 'avatar_url', 'avatar_color', 'location_city')
           .first();
       } else if (fav.item_type === 'style') {
-        item = await db('marketplace_styles')
-          .where({ id: fav.item_id })
-          .select('id', 'title', 'price', 'images', 'category')
+        item = await db('styles as s')
+          .leftJoin('users as tu', 'tu.id', 's.tailor_id')
+          .leftJoin('tailor_profiles as tp', 'tp.user_id', 's.tailor_id')
+          .where('s.id', fav.item_id)
+          .select('s.id', 's.title', 's.image_url', 's.thumb_url', 's.category',
+            's.price', 's.like_count', 's.save_count', 's.source_type', 's.source_name',
+            'tu.name as tailor_name', 'tp.storefront_slug as tailor_slug')
           .first();
       } else if (fav.item_type === 'fabric') {
         item = await db('fabrics')
