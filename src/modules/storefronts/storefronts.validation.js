@@ -29,6 +29,12 @@ const addPortfolioSchema = [
   body('title').trim().notEmpty().isLength({ max: 200 }).withMessage('Title is required (max 200 chars)'),
   body('image_url').trim().notEmpty().isURL().withMessage('Valid image URL is required'),
   body('display_order').optional().isInt({ min: 0 }).toInt(),
+  // Optional metadata mirrored into the public styles feed.
+  body('thumb_url').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+  body('description').optional({ nullable: true }).isString().isLength({ max: 4000 }),
+  body('category').optional({ nullable: true }).isString().isLength({ max: 40 }),
+  body('tags').optional({ nullable: true }).isArray({ max: 20 }),
+  body('price').optional({ nullable: true }).isInt({ min: 0 }).toInt(),
 ];
 
 module.exports = {

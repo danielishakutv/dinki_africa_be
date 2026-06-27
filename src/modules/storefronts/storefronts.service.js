@@ -232,13 +232,32 @@ async function addPortfolioItem(tailorId, data) {
     })
     .returning('*');
 
+  // Mirror into the public styles feed so the tailor's work also shows on the
+  // landing page / Explore. Linked by portfolio_item_id so removal stays in sync.
+  const [style] = await db('styles')
+    .insert({
+      title: data.title,
+      description: data.description || null,
+      image_url: data.image_url,
+      thumb_url: data.thumb_url || data.image_url,
+      source_type: 'tailor',
+      tailor_id: tailorId,
+      category: data.category || null,
+      tags: data.tags && data.tags.length ? data.tags : null,
+      price: data.price != null ? data.price : null,
+      is_published: true,
+      portfolio_item_id: item.id,
+      created_by: tailorId,
+    })
+    .returning('id');
+
   // Invalidate storefront cache
   const profile = await db('tailor_profiles').where({ user_id: tailorId }).select('storefront_slug').first();
   if (profile?.storefront_slug) {
     await redis.del(`storefront:${profile.storefront_slug}`);
   }
 
-  return item;
+  return { ...item, style_id: style.id };
 }
 
 async function removePortfolioItem(tailorId, itemId) {
@@ -248,6 +267,8 @@ async function removePortfolioItem(tailorId, itemId) {
 
   if (!item) throw new AppError('Portfolio item not found', 404, 'NOT_FOUND');
 
+  // Remove the mirrored feed style first (FK is ON DELETE CASCADE too, but be explicit).
+  await db('styles').where({ portfolio_item_id: itemId }).del();
   await db('portfolio_items').where({ id: itemId }).del();
 
   // Invalidate storefront cache
