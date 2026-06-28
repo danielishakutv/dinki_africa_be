@@ -11,14 +11,17 @@ const {
   resetPasswordSchema,
   changePasswordSchema,
   activateSchema,
+  resendOtpSchema,
 } = require('./auth.validation');
 
 const authLimiter = createLimiter(5, 15);       // 5 attempts per 15 min
 const forgotLimiter = createLimiter(3, 60);      // 3 per hour
+const resendLimiter = createLimiter(4, 15);      // 4 OTP resends per 15 min (own budget)
 
 router.post('/signup', authLimiter, validate(signupSchema), ctrl.signup);
 router.post('/activate', authLimiter, validate(activateSchema), ctrl.activate);
 router.post('/verify-email', authLimiter, validate(verifyEmailSchema), ctrl.verifyEmail);
+router.post('/resend-otp', resendLimiter, validate(resendOtpSchema), ctrl.resendOtp);
 router.post('/login', authLimiter, validate(loginSchema), ctrl.login);
 router.post('/refresh', ctrl.refresh);
 router.post('/logout', auth, ctrl.logout);

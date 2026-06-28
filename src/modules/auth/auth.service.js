@@ -183,6 +183,23 @@ async function signup({ email, password, name, role, referralCode }) {
   return { message: 'Account created. Please verify your email.', userId: user.id };
 }
 
+// Re-issue the email-verification OTP. Used by the "Resend code" button on the
+// OTP screen. Always returns the same message regardless of whether the email
+// exists / needs verifying, so it can't be used to probe which emails are
+// registered. Only actually sends when there's an unverified account.
+async function resendOtp(email) {
+  const user = await db('users').where({ email }).first();
+
+  if (user && !user.email_verified) {
+    const otp = generateOTP();
+    await redis.setex(`otp:${email}`, OTP_EXPIRY, otp);
+    emailService.sendOTP(email, otp, user.name).catch(err => console.error('[EMAIL] OTP resend failed:', err.message));
+    if (config.env !== 'production') console.log(`[DEV] OTP for ${email}: ${otp}`);
+  }
+
+  return { message: 'If that account still needs verifying, a new code is on its way.' };
+}
+
 async function verifyEmail({ email, otp }, io) {
   const storedOTP = await redis.get(`otp:${email}`);
 
@@ -476,6 +493,7 @@ async function activate({ user_id, email, password, name }) {
 module.exports = {
   signup,
   verifyEmail,
+  resendOtp,
   login,
   refresh,
   logout,

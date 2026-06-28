@@ -66,6 +66,13 @@ const changePasswordSchema = [
     .matches(/[0-9]/).withMessage('Password must contain a number'),
 ];
 
+const resendOtpSchema = [
+  body('email')
+    .trim()
+    .isEmail().withMessage('Valid email is required')
+    .normalizeEmail(),
+];
+
 const activateSchema = [
   body('user_id')
     .isUUID().withMessage('Valid user ID is required'),
@@ -91,4 +98,5 @@ module.exports = {
   resetPasswordSchema,
   changePasswordSchema,
   activateSchema,
+  resendOtpSchema,
 };

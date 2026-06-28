@@ -17,6 +17,11 @@ exports.verifyEmail = catchAsync(async (req, res) => {
   });
 });
 
+exports.resendOtp = catchAsync(async (req, res) => {
+  const result = await authService.resendOtp(req.body.email);
+  return success(res, result);
+});
+
 exports.login = catchAsync(async (req, res) => {
   const result = await authService.login(req.body);
   setRefreshCookie(res, result.refreshToken);
