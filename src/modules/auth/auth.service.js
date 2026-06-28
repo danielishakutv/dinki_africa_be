@@ -97,6 +97,39 @@ async function signup({ email, password, name, role, referralCode }) {
         message: 'An account was set up for you by a tailor. Verify to activate it.',
       };
     }
+
+    // Unverified account — almost always a previous signup whose RESPONSE was
+    // lost to a flaky network/CORS hiccup (the row was written, the user never
+    // saw success). Let this attempt re-claim it: refresh the credentials and
+    // re-send the OTP, so the user isn't dead-ended on "email already exists".
+    // Safe to overwrite because ownership is only proven once the emailed OTP is
+    // entered — whoever completes verification controls the account.
+    if (!existing.email_verified) {
+      const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+      await db('users').where({ id: existing.id }).update({
+        password_hash: passwordHash,
+        name,
+        initials: getInitials(name),
+        role,
+      });
+
+      // Make sure a tailor gets a storefront profile even on a re-claim.
+      if (role === 'tailor') {
+        const tp = await db('tailor_profiles').where({ user_id: existing.id }).first('user_id');
+        if (!tp) {
+          const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+          await db('tailor_profiles').insert({ user_id: existing.id, storefront_slug: `${slug}-${nanoid(4)}` });
+        }
+      }
+
+      const otp = generateOTP();
+      await redis.setex(`otp:${email}`, OTP_EXPIRY, otp);
+      emailService.sendOTP(email, otp, name).catch(err => console.error('[EMAIL] OTP re-send failed:', err.message));
+      if (config.env !== 'production') console.log(`[DEV] OTP for ${email}: ${otp}`);
+
+      return { message: 'Account created. Please verify your email.', userId: existing.id };
+    }
+
     throw new AppError('Email already registered', 409, 'EMAIL_EXISTS');
   }
 

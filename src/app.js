@@ -17,9 +17,35 @@ app.set('trust proxy', 1);
 // Security headers
 app.use(helmet());
 
-// CORS
+// CORS — resilient allow-list.
+// A surprising number of "Failed to fetch" reports come from CORS: the request
+// reaches the API (the row gets written) but the browser blocks the *response*
+// because the page's Origin isn't allowed. To make that impossible from a simple
+// env typo, we allow the configured origins AND the canonical frontend URL AND
+// each one's www/non-www counterpart. Requests with no Origin (curl, mobile,
+// same-origin) are always allowed.
+const corsAllow = new Set();
+const addAllowedOrigin = (o) => {
+  if (!o) return;
+  const v = String(o).trim().replace(/\/+$/, '');
+  if (!v) return;
+  corsAllow.add(v);
+  try {
+    const u = new URL(v);
+    const altHost = u.host.startsWith('www.') ? u.host.slice(4) : `www.${u.host}`;
+    corsAllow.add(`${u.protocol}//${altHost}`);
+  } catch { /* not a URL — keep the literal value */ }
+};
+[].concat(config.cors.origin || []).forEach(addAllowedOrigin);
+addAllowedOrigin(config.frontendUrl);
+
 app.use(cors({
-  origin: config.cors.origin,
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);
+    if (corsAllow.has(origin.replace(/\/+$/, ''))) return cb(null, true);
+    console.warn(`[CORS] blocked origin: ${origin} (allowed: ${[...corsAllow].join(', ')})`);
+    return cb(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 
