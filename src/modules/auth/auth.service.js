@@ -8,10 +8,12 @@ const AppError = require('../../utils/AppError');
 const { nanoid } = require('nanoid');
 const emailService = require('../../services/emailService');
 const { createNotification } = require('../notifications/notifications.service');
+const { normalizeNigerianPhone } = require('../../utils/phone');
 
 const SALT_ROUNDS = 12;
 const OTP_EXPIRY = 5 * 60; // 5 minutes in seconds
 const RESET_TOKEN_EXPIRY = 60 * 60; // 1 hour in seconds
+const VERIFY_GRACE_DAYS = 7; // days a new account can use the app before verifying
 
 function generateAccessToken(user) {
   return jwt.sign(
@@ -50,6 +52,59 @@ function getInitials(name) {
     .slice(0, 2);
 }
 
+function verifyDeadlineFromNow() {
+  return new Date(Date.now() + VERIFY_GRACE_DAYS * 24 * 60 * 60 * 1000);
+}
+
+// The user object the SPA relies on for routing, nav and the pending-tasks banner.
+function publicUser(user, tailorProfile) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    avatar_url: user.avatar_url,
+    initials: user.initials,
+    avatar_color: user.avatar_color,
+    onboarding_completed: user.onboarding_completed,
+    email_verified: user.email_verified,
+    phone_verified: user.phone_verified,
+    verify_deadline: user.verify_deadline,
+    storefront_slug: tailorProfile?.storefront_slug || null,
+    // Mirror the getProfile shape so the pending-tasks banner reads the correct
+    // storefront-setup state immediately after login/signup (no refresh needed).
+    tailor_profile: tailorProfile ? {
+      storefront_slug: tailorProfile.storefront_slug,
+      storefront_setup_completed: tailorProfile.storefront_setup_completed || false,
+    } : undefined,
+  };
+}
+
+// Persist a fresh verification token and email the link. No-op without an email
+// or when already verified. Non-blocking send — a mail hiccup never blocks auth.
+async function sendEmailVerification(user) {
+  if (!user.email || user.email_verified) return;
+  const token = crypto.randomBytes(32).toString('hex');
+  await db('users').where({ id: user.id }).update({ email_verify_token: token });
+  const link = `${config.frontendUrl}/verify-email?token=${token}`;
+  emailService.sendVerificationEmail(user.email, link, user.name)
+    .catch((err) => console.error('[EMAIL] verification send failed:', err.message));
+  if (config.env !== 'production') console.log(`[DEV] Verify link for ${user.email}: ${link}`);
+}
+
+// Auto-login: issue access + refresh tokens right after signup/activate — no OTP
+// gate. The 7-day grace + verification banner handle email confirmation later.
+async function issueSession(user) {
+  const accessToken = generateAccessToken(user);
+  const refreshToken = await generateRefreshToken(user.id);
+  let tailorProfile = null;
+  if (user.role === 'tailor') {
+    tailorProfile = await db('tailor_profiles').where({ user_id: user.id }).first();
+  }
+  return { accessToken, refreshToken, user: publicUser(user, tailorProfile) };
+}
+
 /**
  * Apply a referral code to a freshly-created user.
  *
@@ -83,12 +138,23 @@ async function applyReferral({ newUserId, newUserEmail, code }) {
   return referrer;
 }
 
-async function signup({ email, password, name, role, referralCode }) {
-  // Check if email exists
-  const existing = await db('users').where({ email }).first();
+// Signup with EMAIL or PHONE (at least one). No OTP gate — the account is created
+// and immediately logged in (auto-session). A verification email link is sent; the
+// user has a 7-day grace window before verification is required (enforced client
+// side against verify_deadline; phone verification via SMS comes later).
+async function signup({ email, phone, password, name, role, referralCode }) {
+  email = email ? String(email).trim().toLowerCase() : null;
+  phone = phone || null; // already normalized to canonical (+234…) or null by phoneBody
+  if (!email && !phone) {
+    throw new AppError('Enter an email address or phone number', 400, 'IDENTIFIER_REQUIRED');
+  }
+
+  // Existing account by either identifier?
+  let existing = null;
+  if (email) existing = await db('users').where({ email }).first();
+  if (!existing && phone) existing = await db('users').where({ phone }).first();
 
   if (existing) {
-    // If it's an inactive placeholder account → tell frontend to activate instead
     if (existing.account_status === 'inactive') {
       return {
         inactive_account: true,
@@ -98,132 +164,92 @@ async function signup({ email, password, name, role, referralCode }) {
       };
     }
 
-    // Unverified account — almost always a previous signup whose RESPONSE was
-    // lost to a flaky network/CORS hiccup (the row was written, the user never
-    // saw success). Let this attempt re-claim it: refresh the credentials and
-    // re-send the OTP, so the user isn't dead-ended on "email already exists".
-    // Safe to overwrite because ownership is only proven once the emailed OTP is
-    // entered — whoever completes verification controls the account.
-    if (!existing.email_verified) {
-      const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-      await db('users').where({ id: existing.id }).update({
-        password_hash: passwordHash,
-        name,
-        initials: getInitials(name),
-        role,
-      });
-
-      // Make sure a tailor gets a storefront profile even on a re-claim.
-      if (role === 'tailor') {
-        const tp = await db('tailor_profiles').where({ user_id: existing.id }).first('user_id');
-        if (!tp) {
-          const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-          await db('tailor_profiles').insert({ user_id: existing.id, storefront_slug: `${slug}-${nanoid(4)}` });
-        }
-      }
-
-      const otp = generateOTP();
-      await redis.setex(`otp:${email}`, OTP_EXPIRY, otp);
-      emailService.sendOTP(email, otp, name).catch(err => console.error('[EMAIL] OTP re-send failed:', err.message));
-      if (config.env !== 'production') console.log(`[DEV] OTP for ${email}: ${otp}`);
-
-      return { message: 'Account created. Please verify your email.', userId: existing.id };
+    // A verified account already owns this identifier → must log in instead.
+    if (existing.email_verified || existing.phone_verified) {
+      throw new AppError('An account with this email or phone already exists', 409, 'EMAIL_EXISTS');
     }
 
-    throw new AppError('Email already registered', 409, 'EMAIL_EXISTS');
+    // Unverified → re-claim (a prior signup whose response was lost, etc). Safe:
+    // ownership isn't proven until verified, so whoever completes it wins.
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    await db('users').where({ id: existing.id }).update({
+      password_hash: passwordHash,
+      name,
+      initials: getInitials(name),
+      role,
+      ...(email ? { email } : {}),
+      ...(phone ? { phone } : {}),
+      verify_deadline: verifyDeadlineFromNow(),
+    });
+    if (role === 'tailor') {
+      const tp = await db('tailor_profiles').where({ user_id: existing.id }).first('user_id');
+      if (!tp) {
+        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+        await db('tailor_profiles').insert({ user_id: existing.id, storefront_slug: `${slug}-${nanoid(4)}` });
+      }
+    }
+    const fresh = await db('users').where({ id: existing.id }).first();
+    await sendEmailVerification(fresh);
+    return issueSession(fresh);
   }
 
-  // Also check by phone if the user provided one (future: add phone to signup)
-  // For now, only email matching in signup
-
+  // Fresh account.
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-  const ownReferralCode = nanoid(8);
-  const initials = getInitials(name);
-
   const [user] = await db('users')
     .insert({
       email,
+      phone,
       password_hash: passwordHash,
       role,
       name,
-      initials,
-      referral_code: ownReferralCode,
+      initials: getInitials(name),
+      referral_code: nanoid(8),
       account_status: 'active',
+      verify_deadline: verifyDeadlineFromNow(),
     })
-    .returning(['id', 'email', 'name', 'role']);
+    .returning('*');
 
-  // Create tailor_profile if tailor
   if (role === 'tailor') {
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-    await db('tailor_profiles').insert({
-      user_id: user.id,
-      storefront_slug: slug + '-' + nanoid(4),
-    });
+    await db('tailor_profiles').insert({ user_id: user.id, storefront_slug: `${slug}-${nanoid(4)}` });
   }
 
-  // Generate and store OTP
-  const otp = generateOTP();
-  await redis.setex(`otp:${email}`, OTP_EXPIRY, otp);
-
-  // Send OTP email (non-blocking so auth flow isn't affected)
-  emailService.sendOTP(email, otp, name).catch(err => console.error('[EMAIL] OTP send failed:', err.message));
-
-  // Record the referral link (if a code was supplied). Always swallowed so a
-  // referral bookkeeping failure never blocks signup — the user account is
-  // already created and is the load-bearing part.
+  // Referral bookkeeping is best-effort — never blocks signup.
   if (referralCode) {
-    applyReferral({ newUserId: user.id, newUserEmail: email, code: referralCode })
+    applyReferral({ newUserId: user.id, newUserEmail: email || phone, code: referralCode })
       .catch((err) => console.error('[REFERRAL] signup apply failed:', err.message));
   }
 
-  if (config.env !== 'production') {
-    console.log(`[DEV] OTP for ${email}: ${otp}`);
-  }
-
-  return { message: 'Account created. Please verify your email.', userId: user.id };
+  await sendEmailVerification(user);
+  return issueSession(user);
 }
 
-// Re-issue the email-verification OTP. Used by the "Resend code" button on the
-// OTP screen. Always returns the same message regardless of whether the email
-// exists / needs verifying, so it can't be used to probe which emails are
-// registered. Only actually sends when there's an unverified account.
-async function resendOtp(email) {
-  const user = await db('users').where({ email }).first();
-
-  if (user && !user.email_verified) {
-    const otp = generateOTP();
-    await redis.setex(`otp:${email}`, OTP_EXPIRY, otp);
-    emailService.sendOTP(email, otp, user.name).catch(err => console.error('[EMAIL] OTP resend failed:', err.message));
-    if (config.env !== 'production') console.log(`[DEV] OTP for ${email}: ${otp}`);
+// Re-issue the email verification link for the logged-in user (pending-tasks
+// banner → "Resend verification email"). No-op if already verified / no email.
+async function resendVerification(userId) {
+  const user = await db('users').where({ id: userId }).first();
+  if (user && user.email && !user.email_verified) {
+    await sendEmailVerification(user);
   }
-
-  return { message: 'If that account still needs verifying, a new code is on its way.' };
+  return { message: 'If your email still needs verifying, a new link is on its way.' };
 }
 
-async function verifyEmail({ email, otp }, io) {
-  const storedOTP = await redis.get(`otp:${email}`);
+// Verify an email via the single-use link token. The user is typically already
+// logged in (auto-session at signup) — this just flips email_verified and returns
+// the refreshed public user so the SPA can update state without a reload.
+async function verifyEmail({ token }, io) {
+  if (!token) throw new AppError('Missing verification token', 400, 'INVALID_TOKEN');
 
-  if (!storedOTP || storedOTP !== otp) {
-    throw new AppError('Invalid or expired OTP', 400, 'INVALID_OTP');
-  }
-
-  const user = await db('users').where({ email }).first();
+  const user = await db('users').where({ email_verify_token: token }).first();
   if (!user) {
-    throw new AppError('User not found', 404, 'NOT_FOUND');
+    throw new AppError('This verification link is invalid or has already been used', 400, 'INVALID_TOKEN');
   }
 
-  // Activate account if it was inactive (tailor-created placeholder)
-  const updates = { email_verified: true };
-  if (user.account_status === 'inactive') {
-    updates.account_status = 'active';
-  }
-
+  const updates = { email_verified: true, email_verify_token: null };
+  if (user.account_status === 'inactive') updates.account_status = 'active';
   await db('users').where({ id: user.id }).update(updates);
-  await redis.del(`otp:${email}`);
 
-  // Referral join — flip the invited row to 'joined' and notify the
-  // referrer. Wrapped in a try so a referral bookkeeping failure can't
-  // block the verification response. Sender email is fire-and-forget.
+  // Referral join — flip invited → joined and notify the referrer (best-effort).
   try {
     const joined = await db('referrals')
       .where({ referee_id: user.id, status: 'invited' })
@@ -239,49 +265,39 @@ async function verifyEmail({ email, otp }, io) {
         message: `${user.name} just signed up on Dinki using your referral code.`,
         metadata: { referee_id: user.id, referee_name: user.name, referee_role: user.role },
       }, io).catch((err) => console.error('[REFERRAL] join notify failed:', err.message));
-      console.log(`[REFERRAL] joined referrer=${referrerId} referee=${user.id}`);
     }
   } catch (err) {
     console.error('[REFERRAL] mark-joined failed:', err.message);
   }
 
-  // Send welcome email (non-blocking)
-  emailService.sendWelcome(email, user.name, user.role).catch(err => console.error('[EMAIL] Welcome send failed:', err.message));
+  emailService.sendWelcome(user.email, user.name, user.role).catch(err => console.error('[EMAIL] Welcome send failed:', err.message));
 
-  const accessToken = generateAccessToken(user);
-  const refreshToken = await generateRefreshToken(user.id);
-
-  // Mirror the login response shape so the SPA can route correctly straight
-  // after verification (onboarding gate reads onboarding_completed; tailor nav
-  // reads storefront_slug). Omitting onboarding_completed left it undefined and
-  // the post-verify routing fragile.
   let tailorProfile = null;
   if (user.role === 'tailor') {
     tailorProfile = await db('tailor_profiles').where({ user_id: user.id }).first();
   }
-
-  return {
-    accessToken,
-    refreshToken,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      avatar_url: user.avatar_url,
-      initials: user.initials,
-      avatar_color: user.avatar_color,
-      onboarding_completed: user.onboarding_completed,
-      storefront_slug: tailorProfile?.storefront_slug || null,
-    },
-  };
+  const fresh = await db('users').where({ id: user.id }).first();
+  return { message: 'Email verified', user: publicUser(fresh, tailorProfile) };
 }
 
-async function login({ email, password }) {
-  const user = await db('users').where({ email }).first();
+// Login by EMAIL or PHONE. `identifier` is whatever the user typed; we detect an
+// email by the '@' and otherwise treat it as a Nigerian phone (normalized to the
+// canonical stored form before lookup). `email` is still accepted for backward
+// compatibility.
+async function login({ identifier, email, password }) {
+  const raw = String(identifier || email || '').trim();
+  let user = null;
+  if (raw.includes('@')) {
+    user = await db('users').where({ email: raw.toLowerCase() }).first();
+  } else {
+    const norm = normalizeNigerianPhone(raw);
+    if (norm.ok && norm.value) {
+      user = await db('users').where({ phone: norm.value }).first();
+    }
+  }
 
   if (!user) {
-    throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
+    throw new AppError('Invalid login or password', 401, 'INVALID_CREDENTIALS');
   }
 
   // Check if account is locked
@@ -298,19 +314,12 @@ async function login({ email, password }) {
       updates.locked_until = new Date(Date.now() + 30 * 60 * 1000); // 30 min lock
     }
     await db('users').where({ id: user.id }).update(updates);
-    throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
+    throw new AppError('Invalid login or password', 401, 'INVALID_CREDENTIALS');
   }
 
-  if (!user.email_verified) {
-    // Re-send OTP
-    const otp = generateOTP();
-    await redis.setex(`otp:${email}`, OTP_EXPIRY, otp);
-    emailService.sendOTP(email, otp).catch(err => console.error('[EMAIL] OTP re-send failed:', err.message));
-    if (config.env !== 'production') {
-      console.log(`[DEV] OTP for ${email}: ${otp}`);
-    }
-    throw new AppError('Email not verified. New OTP sent.', 403, 'EMAIL_NOT_VERIFIED');
-  }
+  // No email-verified gate: within the 7-day grace new accounts can log in and
+  // use the app. Verification is nudged via the dashboard banner and enforced
+  // client-side once verify_deadline passes.
 
   // Reset failed login count & update login stats
   await db('users').where({ id: user.id }).update({
@@ -320,30 +329,13 @@ async function login({ email, password }) {
     login_count: user.login_count + 1,
   });
 
-  const accessToken = generateAccessToken(user);
-  const refreshToken = await generateRefreshToken(user.id);
-
-  // Get tailor profile if applicable
   let tailorProfile = null;
   if (user.role === 'tailor') {
     tailorProfile = await db('tailor_profiles').where({ user_id: user.id }).first();
   }
-
-  return {
-    accessToken,
-    refreshToken,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      avatar_url: user.avatar_url,
-      initials: user.initials,
-      avatar_color: user.avatar_color,
-      onboarding_completed: user.onboarding_completed,
-      storefront_slug: tailorProfile?.storefront_slug || null,
-    },
-  };
+  const accessToken = generateAccessToken(user);
+  const refreshToken = await generateRefreshToken(user.id);
+  return { accessToken, refreshToken, user: publicUser(user, tailorProfile) };
 }
 
 async function refresh(rawToken) {
@@ -430,7 +422,8 @@ async function changePassword(userId, { currentPassword, newPassword }) {
 
 /**
  * Activate an inactive account (created by a tailor on behalf of a customer).
- * Sets the real email, password, and sends an OTP for verification.
+ * Sets the real email + password, activates it, auto-logs-in (no OTP), and emails
+ * a verification link with the standard 7-day grace.
  */
 async function activate({ user_id, email, password, name }) {
   const user = await db('users').where({ id: user_id }).first();
@@ -443,23 +436,22 @@ async function activate({ user_id, email, password, name }) {
     throw new AppError('Account is already active', 400, 'ALREADY_ACTIVE');
   }
 
-  // Make sure the new email isn't taken by a different user
-  const emailTaken = await db('users')
-    .where({ email })
-    .whereNot({ id: user_id })
-    .first();
-
-  if (emailTaken) {
-    throw new AppError('Email already registered to another account', 409, 'EMAIL_EXISTS');
+  const emailNorm = email ? String(email).trim().toLowerCase() : null;
+  if (emailNorm) {
+    const emailTaken = await db('users').where({ email: emailNorm }).whereNot({ id: user_id }).first();
+    if (emailTaken) {
+      throw new AppError('Email already registered to another account', 409, 'EMAIL_EXISTS');
+    }
   }
 
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
   const updates = {
-    email,
     password_hash: passwordHash,
+    account_status: 'active',
+    verify_deadline: verifyDeadlineFromNow(),
     updated_at: new Date(),
   };
-
+  if (emailNorm) updates.email = emailNorm;
   if (name) {
     updates.name = name;
     updates.initials = getInitials(name);
@@ -467,33 +459,15 @@ async function activate({ user_id, email, password, name }) {
 
   await db('users').where({ id: user_id }).update(updates);
 
-  // Generate and store OTP
-  const otp = generateOTP();
-  await redis.setex(`otp:${email}`, OTP_EXPIRY, otp);
-
-  // Send activation OTP email (non-blocking)
-  emailService.sendOTP(email, otp, name || user.name).catch(err => console.error('[EMAIL] Activation OTP send failed:', err.message));
-
-  if (config.env !== 'production') {
-    console.log(`[DEV] Activation OTP for ${email}: ${otp}`);
-  }
-
-  return {
-    message: 'Verification code sent. Please check your email.',
-    userId: user_id,
-  };
+  const fresh = await db('users').where({ id: user_id }).first();
+  await sendEmailVerification(fresh);
+  return issueSession(fresh);
 }
-
-/**
- * Complete activation after OTP verification.
- * This is called by the existing verifyEmail flow — we just need verifyEmail
- * to also set account_status = 'active' when verifying an inactive account.
- */
 
 module.exports = {
   signup,
   verifyEmail,
-  resendOtp,
+  resendVerification,
   login,
   refresh,
   logout,

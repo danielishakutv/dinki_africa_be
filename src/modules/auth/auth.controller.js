@@ -4,21 +4,25 @@ const { success } = require('../../utils/apiResponse');
 
 exports.signup = catchAsync(async (req, res) => {
   const result = await authService.signup(req.body);
-  return success(res, result, 201);
+  // Inactive placeholder → frontend switches to the activate flow (no session yet).
+  if (result.inactive_account) {
+    return success(res, result, 200);
+  }
+  // Auto-login: set the refresh cookie and return the access token + user.
+  setRefreshCookie(res, result.refreshToken);
+  return success(res, { accessToken: result.accessToken, user: result.user }, 201);
 });
 
 exports.verifyEmail = catchAsync(async (req, res) => {
   const io = req.app.get('io');
+  // Token-based (link). The user is already logged in, so no new session — just
+  // return the refreshed user so the SPA can update state.
   const result = await authService.verifyEmail(req.body, io);
-  setRefreshCookie(res, result.refreshToken);
-  return success(res, {
-    accessToken: result.accessToken,
-    user: result.user,
-  });
+  return success(res, result);
 });
 
-exports.resendOtp = catchAsync(async (req, res) => {
-  const result = await authService.resendOtp(req.body.email);
+exports.resendVerification = catchAsync(async (req, res) => {
+  const result = await authService.resendVerification(req.user.id);
   return success(res, result);
 });
 
@@ -65,7 +69,9 @@ exports.changePassword = catchAsync(async (req, res) => {
 
 exports.activate = catchAsync(async (req, res) => {
   const result = await authService.activate(req.body);
-  return success(res, result);
+  // Auto-login the newly activated account.
+  setRefreshCookie(res, result.refreshToken);
+  return success(res, { accessToken: result.accessToken, user: result.user });
 });
 
 function setRefreshCookie(res, token) {

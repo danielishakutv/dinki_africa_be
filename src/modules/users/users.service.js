@@ -6,7 +6,8 @@ async function getProfile(userId) {
     .where({ id: userId })
     .select('id', 'email', 'name', 'username', 'phone', 'avatar_url', 'initials', 'avatar_color',
       'bio', 'location_city', 'location_state', 'location_country', 'specialties',
-      'role', 'onboarding_completed', 'preferences', 'referral_code', 'created_at')
+      'role', 'onboarding_completed', 'preferences', 'referral_code', 'created_at',
+      'email_verified', 'phone_verified', 'verify_deadline')
     .first();
 
   if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');

@@ -114,6 +114,30 @@ async function sendPasswordReset(email, resetToken, name) {
 }
 
 /**
+ * Send an email-verification LINK (new signup flow — no OTP). The user is already
+ * logged in; clicking the link confirms ownership within the 7-day grace window.
+ */
+async function sendVerificationEmail(email, verifyUrl, name) {
+  const safeName = name || 'there';
+  const html = `
+  <div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#ffffff;color:#1a0a00">
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="display:inline-block;background:linear-gradient(135deg,#e8a020,#c87d10);color:#fff;font-weight:800;font-size:18px;padding:10px 16px;border-radius:12px">Dinki Africa</div>
+    </div>
+    <h1 style="font-size:20px;margin:0 0 12px">Confirm your email</h1>
+    <p style="font-size:14px;line-height:1.6;color:#5a4a3a;margin:0 0 20px">Hi ${safeName}, welcome to Dinki! You're already signed in. Confirm your email to keep your account secure and unlock everything — it only takes a tap.</p>
+    <a href="${verifyUrl}" style="display:inline-block;background:linear-gradient(135deg,#e8a020,#c87d10);color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 24px;border-radius:12px">Verify my email</a>
+    <p style="font-size:12px;color:#9a8a7a;margin:20px 0 0;line-height:1.6">If the button doesn't work, paste this link into your browser:<br/><a href="${verifyUrl}" style="color:#c87d10;word-break:break-all">${verifyUrl}</a></p>
+  </div>`;
+  return sendEmail({
+    to: email,
+    subject: 'Verify your email — Dinki Africa',
+    html,
+    text: `Hi ${safeName}, verify your Dinki Africa email: ${verifyUrl}`,
+  });
+}
+
+/**
  * Send welcome email after successful verification
  */
 async function sendWelcome(email, name, role) {
@@ -202,6 +226,7 @@ async function verifyConnection() {
 module.exports = {
   sendEmail,
   sendOTP,
+  sendVerificationEmail,
   sendPasswordReset,
   sendWelcome,
   sendNotification,
