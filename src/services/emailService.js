@@ -5,37 +5,82 @@
 const nodemailer = require('nodemailer');
 const { emailTemplates } = require('./emailTemplates');
 
-// Postfix transport — container reaches host Postfix via host.docker.internal
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'host.docker.internal',
-  port: 25,
-  secure: false,
-  tls: { rejectUnauthorized: false },
-  // Connection pooling for better performance
-  pool: true,
-  maxConnections: 5,
-  maxMessages: 100,
-});
+// Transport selection:
+//   - RESEND_API_KEY set  → send via Resend's HTTP API (recommended; a verified
+//     domain with SPF/DKIM/DMARC lands in the inbox, not spam).
+//   - otherwise           → fall back to the local Postfix relay (old behaviour).
+// Flip to Resend by adding the env var + restarting the API container — no code
+// change or redeploy required once this file is live.
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
 const FROM_ADDRESS = process.env.EMAIL_FROM || '"Dinki Africa" <no-reply@dinki.africa>';
 const SUPPORT_ADDRESS = process.env.EMAIL_SUPPORT || 'support@dinki.africa';
+
+// Postfix transport is created lazily so we never open an SMTP pool when Resend
+// is the active transport.
+let _transporter = null;
+function getTransporter() {
+  if (!_transporter) {
+    _transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || 'host.docker.internal',
+      port: 25,
+      secure: false,
+      tls: { rejectUnauthorized: false },
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
+    });
+  }
+  return _transporter;
+}
+
+// Send one email through Resend's HTTP API (native fetch — Node 18+).
+async function sendViaResend({ from, to, cc, subject, html, text, replyTo }) {
+  const res = await fetch(RESEND_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from,
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html,
+      text: text || subject,
+      ...(cc ? { cc: Array.isArray(cc) ? cc : [cc] } : {}),
+      ...(replyTo ? { reply_to: replyTo } : {}),
+    }),
+  });
+
+  let data = {};
+  try { data = await res.json(); } catch { /* non-JSON error body */ }
+  if (!res.ok) {
+    throw new Error(data.message || `Resend API error (${res.status})`);
+  }
+  return { messageId: data.id };
+}
 
 /**
  * Send a raw email. `cc` and `replyTo` are opt-in; omitting them keeps
  * existing transactional sends (OTP, welcome, reset) unchanged.
  */
 async function sendEmail({ to, cc, subject, html, text, from, replyTo }) {
+  const fromAddr = from || FROM_ADDRESS;
   try {
-    const info = await transporter.sendMail({
-      from: from || FROM_ADDRESS,
-      to,
-      ...(cc ? { cc } : {}),
-      ...(replyTo ? { replyTo } : {}),
-      subject,
-      html,
-      text: text || subject, // plain-text fallback
-    });
-    console.log(`[EMAIL] Sent to ${to}${cc ? ` (cc ${cc})` : ''} — messageId: ${info.messageId}`);
+    const info = RESEND_API_KEY
+      ? await sendViaResend({ from: fromAddr, to, cc, subject, html, text, replyTo })
+      : await getTransporter().sendMail({
+          from: fromAddr,
+          to,
+          ...(cc ? { cc } : {}),
+          ...(replyTo ? { replyTo } : {}),
+          subject,
+          html,
+          text: text || subject, // plain-text fallback
+        });
+    console.log(`[EMAIL] Sent to ${to}${cc ? ` (cc ${cc})` : ''} via ${RESEND_API_KEY ? 'Resend' : 'Postfix'} — id: ${info.messageId}`);
     return info;
   } catch (err) {
     console.error(`[EMAIL] Failed to send to ${to}:`, err.message);
@@ -139,13 +184,17 @@ async function sendSystemNotification(email, { name, title, message, link }) {
  * Verify Postfix connection on startup
  */
 async function verifyConnection() {
+  if (RESEND_API_KEY) {
+    console.log('[EMAIL] Transport: Resend HTTP API (RESEND_API_KEY detected).');
+    return true;
+  }
   try {
-    await transporter.verify();
+    await getTransporter().verify();
     console.log('[EMAIL] Postfix connection verified — ready to send');
     return true;
   } catch (err) {
     console.error('[EMAIL] Postfix connection failed:', err.message);
-    console.error('[EMAIL] Emails will not be sent. Check Postfix is running: sudo systemctl status postfix');
+    console.error('[EMAIL] Set RESEND_API_KEY to send via Resend, or check Postfix: sudo systemctl status postfix');
     return false;
   }
 }
